@@ -3,6 +3,7 @@ const Referral = require('../models/Referral');
 const Commission = require('../models/Commission');
 const User = require('../models/User');
 const auth = require('../middleware/auth');
+const ActivityService = require('../services/activityService');
 
 const router = express.Router();
 
@@ -22,6 +23,15 @@ router.post('/track', async (req, res) => {
     });
 
     await referral.save();
+
+    // Track referral click activity
+    await ActivityService.trackReferralClick(referrerId, postId, platform, {
+      platform,
+      device,
+      location,
+      userAgent: browser,
+      ip: req.ip
+    });
 
     // Update post reach
     const Post = require('../models/Post');
@@ -73,6 +83,9 @@ router.post('/convert', auth, async (req, res) => {
 
       await commission.save();
 
+      // Track commission earned activity
+      await ActivityService.trackCommissionEarned(referrals[i].referrer, amount, referrals[i]._id, level);
+
       // Update user credits (points become credits)
       await User.findByIdAndUpdate(referrals[i].referrer, { $inc: { credits: amount } });
     }
@@ -93,9 +106,12 @@ router.post('/share', auth, async (req, res) => {
   try {
     const { postId, platform } = req.body;
 
-    // For now, we'll just log the share. In a real implementation,
-    // you might want to create a share record or update analytics
-    console.log(`User ${req.user.id} shared post ${postId} on ${platform}`);
+    // Track referral shared activity
+    await ActivityService.trackReferralShared(req.user.id, postId, platform, {
+      platform,
+      userAgent: req.headers['user-agent'],
+      ip: req.ip
+    });
 
     res.json({ message: 'Share tracked successfully' });
   } catch (error) {

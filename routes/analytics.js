@@ -5,6 +5,7 @@ const Commission = require('../models/Commission');
 const User = require('../models/User');
 const Post = require('../models/Post');
 const auth = require('../middleware/auth');
+const ActivityService = require('../services/activityService');
 
 const router = express.Router();
 
@@ -285,42 +286,42 @@ router.get('/activities/:userId', auth, async (req, res) => {
   try {
     const { userId } = req.params;
 
-    // Get user's posts
-    const posts = await Post.find({ creator: userId }).sort({ createdAt: -1 }).limit(5);
+    // Get activities for this user using the new ActivityService
+    const activities = await ActivityService.getUserActivities(userId);
 
-    // Get user's referrals
-    const referrals = await Referral.find({ referrer: userId }).sort({ createdAt: -1 }).limit(5).populate('post');
+    // Format for frontend compatibility
+    const formattedActivities = activities.map(activity => ({
+      type: activity.type,
+      title: getActivityTitle(activity),
+      description: activity.message,
+      date: activity.createdAt,
+      details: activity.details
+    }));
 
-    // Get user's commissions
-    const commissions = await Commission.find({ recipient: userId }).sort({ createdAt: -1 }).limit(5).populate('referral');
-
-    // Combine and sort by date
-    const activities = [
-      ...posts.map(p => ({
-        type: 'post',
-        title: 'Post created',
-        description: `Created post: ${p.title}`,
-        date: p.createdAt
-      })),
-      ...referrals.map(r => ({
-        type: 'referral',
-        title: 'Referral shared',
-        description: `Shared post: ${r.post.title}`,
-        date: r.createdAt
-      })),
-      ...commissions.map(c => ({
-        type: 'commission',
-        title: 'Commission earned',
-        description: `Earned ${c.amount} points from referral`,
-        date: c.createdAt
-      }))
-    ].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 10);
-
-    res.json(activities);
+    res.json(formattedActivities);
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
   }
 });
+
+function getActivityTitle(activity) {
+  switch (activity.type) {
+    case 'user_registration':
+      return 'User Registration';
+    case 'user_login':
+      return 'Login';
+    case 'post_created':
+      return 'Post Created';
+    case 'referral_shared':
+      return 'Referral Shared';
+    case 'referral_click':
+      return 'Referral Click';
+    case 'commission_earned':
+      return 'Commission Earned';
+    default:
+      return 'Activity';
+  }
+}
 
 // Get user referrals
 router.get('/referrals/:userId', auth, async (req, res) => {
@@ -359,6 +360,58 @@ router.get('/commissions/:userId', auth, async (req, res) => {
 
     res.json(commissions);
   } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get platform performance stats for admin
+router.get('/platform-stats', async (req, res) => {
+  try {
+    // Get platform distribution from referral activities
+    const platformStats = await ActivityService.getPlatformStats();
+
+    // Get device distribution from all activities with device info
+    const deviceStats = await ActivityService.getDeviceStats();
+
+    // Get post creation platform stats
+    const postCreationStats = await ActivityService.getPostCreationStats();
+
+    // Calculate percentages
+    const totalReferrals = platformStats.reduce((sum, stat) => sum + stat.count, 0);
+    const totalDevices = deviceStats.reduce((sum, stat) => sum + stat.count, 0);
+    const totalPosts = postCreationStats.reduce((sum, stat) => sum + stat.count, 0);
+
+    const platformPercentages = platformStats.map(stat => ({
+      platform: stat.platform || 'unknown',
+      count: stat.count,
+      percentage: totalReferrals > 0 ? Math.round((stat.count / totalReferrals) * 100) : 0
+    }));
+
+    const devicePercentages = deviceStats.map(stat => ({
+      device: stat.device || 'unknown',
+      count: stat.count,
+      percentage: totalDevices > 0 ? Math.round((stat.count / totalDevices) * 100) : 0
+    }));
+
+    const postPlatformPercentages = postCreationStats.map(stat => ({
+      platform: stat.platform || 'unknown',
+      count: stat.count,
+      percentage: totalPosts > 0 ? Math.round((stat.count / totalPosts) * 100) : 0
+    }));
+
+    res.json({
+      overview: {
+        totalUsers: await User.countDocuments(),
+        totalPosts: await Post.countDocuments(),
+        totalReferrals: totalReferrals,
+        totalEarnings: 0 // Would need to calculate from commissions
+      },
+      platformStats: platformPercentages,
+      deviceStats: devicePercentages,
+      postCreationStats: postPlatformPercentages
+    });
+  } catch (error) {
+    console.error('Error getting platform stats:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

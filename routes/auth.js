@@ -3,16 +3,17 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const auth = require('../middleware/auth');
+const ActivityService = require('../services/activityService');
 
 const router = express.Router();
 
 // Register
 router.post('/register', async (req, res) => {
   try {
-    const { email, password, type } = req.body;
+    const { email, username, password, type, platform, device, browser, userAgent, screenSize, coordinates } = req.body;
 
     // Check if user exists
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ $or: [{ email }, { username }] });
     if (existingUser) {
       return res.status(400).json({ message: 'User already exists' });
     }
@@ -37,6 +38,7 @@ router.post('/register', async (req, res) => {
     // Create user
     const user = new User({
       email,
+      username,
       password: hashedPassword,
       type,
       credits,
@@ -44,6 +46,17 @@ router.post('/register', async (req, res) => {
     });
 
     await user.save();
+
+    // Track user registration activity with metadata
+    await ActivityService.trackUserRegistration(user._id, null, {
+      platform: platform || 'web',
+      device: device || 'desktop',
+      browser: browser || req.headers['user-agent']?.split(' ')[0] || 'Unknown',
+      userAgent: userAgent || req.headers['user-agent'] || 'Unknown',
+      screenSize: screenSize || {},
+      coordinates: coordinates || {},
+      ipAddress: req.ip
+    });
 
     // Generate token
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
@@ -55,6 +68,7 @@ router.post('/register', async (req, res) => {
       user: {
         id: user._id,
         email: user.email,
+        username: user.username,
         type: user.type,
         credits: user.credits,
       },
@@ -79,6 +93,13 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ message: 'Invalid credentials' });
     }
 
+    // Track user login activity
+    await ActivityService.trackUserLogin(user._id, {
+      platform: 'web',
+      userAgent: req.headers['user-agent'],
+      ip: req.ip
+    });
+
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
       expiresIn: '7d',
     });
@@ -88,6 +109,7 @@ router.post('/login', async (req, res) => {
       user: {
         id: user._id,
         email: user.email,
+        username: user.username,
         type: user.type,
         credits: user.credits,
       },
@@ -119,6 +141,35 @@ router.put('/profile', auth, async (req, res) => {
     res.json(user);
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Migration route to add usernames to existing users
+router.post('/migrate-usernames', async (req, res) => {
+  try {
+    const users = await User.find({ username: { $exists: false } });
+    let updatedCount = 0;
+
+    for (const user of users) {
+      // Generate username from email (part before @)
+      const baseUsername = user.email.split('@')[0];
+      let username = baseUsername;
+      let counter = 1;
+
+      // Ensure uniqueness
+      while (await User.findOne({ username })) {
+        username = `${baseUsername}${counter}`;
+        counter++;
+      }
+
+      user.username = username;
+      await user.save();
+      updatedCount++;
+    }
+
+    res.json({ message: `Updated ${updatedCount} users with usernames` });
+  } catch (error) {
+    res.status(500).json({ message: 'Migration error', error: error.message });
   }
 });
 

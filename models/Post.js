@@ -43,6 +43,40 @@ const postSchema = new mongoose.Schema({
     longitude: Number,
     city: String,
     state: String,
+    country: String,
+    timezone: String,
+  },
+  creationMetadata: {
+    platform: {
+      type: String,
+      enum: ['web', 'mobile', 'desktop'],
+      default: 'web'
+    },
+    device: {
+      type: String,
+      enum: ['desktop', 'mobile', 'tablet'],
+      default: 'desktop'
+    },
+    browser: String,
+    userAgent: String,
+    screenSize: {
+      width: Number,
+      height: Number
+    },
+    ipAddress: String,
+    coordinates: {
+      latitude: Number,
+      longitude: Number,
+      accuracy: Number
+    },
+    networkInfo: {
+      isp: String,
+      connectionType: String
+    },
+    timezone: String,
+    language: String,
+    referrer: String,
+    sessionId: String
   },
 }, {
   timestamps: true,
