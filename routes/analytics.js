@@ -6,8 +6,18 @@ const User = require('../models/User');
 const Post = require('../models/Post');
 const auth = require('../middleware/auth');
 const ActivityService = require('../services/activityService');
+const NetworkService = require('../services/networkService');
 
 const router = express.Router();
+
+// Get io instance from server.js
+let io;
+const setIoInstance = (ioInstance) => {
+  io = ioInstance;
+};
+
+// Export the function to be called from server.js
+module.exports.setIoInstance = setIoInstance;
 
 // Get user analytics
 router.get('/user/:userId', auth, async (req, res) => {
@@ -125,6 +135,14 @@ router.get('/global', async (req, res) => {
 
     const totalEarnings = totalCommissions[0]?.total || 0;
 
+    // Get network growth data
+    const networkGrowth = await NetworkService.getNetworkGrowthData();
+
+    // Calculate total network stats
+    const totalLevel1 = networkGrowth.reduce((sum, month) => sum + month.level1, 0);
+    const totalLevel2 = networkGrowth.reduce((sum, month) => sum + month.level2, 0);
+    const totalLevel3 = networkGrowth.reduce((sum, month) => sum + month.level3, 0);
+
     res.json({
       totalUsers,
       totalPosts,
@@ -142,6 +160,13 @@ router.get('/global', async (req, res) => {
         currentMonth: totalEarnings,
         nextMonth: Math.round(totalEarnings * 1.259),
         growthRate: 25.9
+      },
+      networkGrowth: {
+        level1: totalLevel1,
+        level2: totalLevel2,
+        level3: totalLevel3,
+        total: totalLevel1 + totalLevel2 + totalLevel3,
+        monthlyData: networkGrowth
       }
     });
   } catch (error) {
@@ -157,6 +182,16 @@ router.get('/post/:postId', auth, async (req, res) => {
     // Validate postId
     if (!postId || postId.length !== 24) {
       return res.status(400).json({ message: 'Invalid post ID' });
+    }
+
+    // Check if user owns this post or is admin
+    const post = await Post.findById(postId);
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found' });
+    }
+
+    if (post.creator.toString() !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Access denied' });
     }
 
     const referrals = await Referral.find({ post: postId }).sort({ createdAt: 1 });
@@ -204,79 +239,116 @@ router.get('/post/:postId', auth, async (req, res) => {
   }
 });
 
+// Get post analytics for post creator (simplified version for Journey page)
+router.get('/my-post/:postId', auth, async (req, res) => {
+  try {
+    const { postId } = req.params;
+
+    // Validate postId
+    if (!postId || postId.length !== 24) {
+      return res.status(400).json({ message: 'Invalid post ID' });
+    }
+
+    // Check if user owns this post
+    const post = await Post.findById(postId);
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found' });
+    }
+
+    if (post.creator.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const referrals = await Referral.find({ post: postId })
+      .populate('referrer', 'username email')
+      .sort({ createdAt: 1 });
+
+    const commissions = await Commission.find({ post: postId })
+      .populate('recipient', 'username email')
+      .sort({ createdAt: -1 });
+
+    // Build referral chain
+    const referralChain = referrals.map((ref, index) => ({
+      level: index,
+      referrer: ref.referrer,
+      location: ref.location,
+      platform: ref.platform,
+      device: ref.device,
+      timestamp: ref.createdAt,
+      commission: commissions.find(c => c.referral.toString() === ref._id.toString())
+    }));
+
+    // Calculate analytics
+    const totalReferrals = referrals.length;
+    const totalClicks = referrals.length;
+    const totalEarnings = commissions.filter(c => c.recipient).reduce((sum, c) => sum + c.amount, 0);
+
+    // Platform stats
+    const platformStats = Object.entries(
+      referrals.reduce((acc, r) => {
+        acc[r.platform] = (acc[r.platform] || 0) + 1;
+        return acc;
+      }, {})
+    ).map(([platform, clicks]) => ({ platform, clicks }));
+
+    // Geo stats
+    const geoStats = Object.entries(
+      referrals.reduce((acc, r) => {
+        const key = `${r.location.city || 'Unknown'}, ${r.location.state || 'Unknown'}`;
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {})
+    ).map(([location, clicks]) => ({ city: location.split(',')[0], state: location.split(',')[1]?.trim(), clicks }));
+
+    // Device stats
+    const deviceStats = Object.entries(
+      referrals.reduce((acc, r) => {
+        acc[r.device] = (acc[r.device] || 0) + 1;
+        return acc;
+      }, {})
+    ).map(([device, clicks]) => ({ device, clicks }));
+
+    // Time stats (simplified)
+    const timeStats = [
+      { hour: '9-12', conversions: Math.floor(totalClicks * 0.3) },
+      { hour: '12-15', conversions: Math.floor(totalClicks * 0.25) },
+      { hour: '15-18', conversions: Math.floor(totalClicks * 0.2) },
+      { hour: '18-21', conversions: Math.floor(totalClicks * 0.15) },
+      { hour: '21-24', conversions: Math.floor(totalClicks * 0.1) }
+    ];
+
+    res.json({
+      post,
+      analytics: {
+        totalReferrals,
+        totalClicks,
+        totalEarnings,
+        totalConversions: commissions.length,
+        platformStats,
+        geoStats,
+        deviceStats,
+        timeStats,
+        conversionRate: totalClicks > 0 ? ((commissions.length / totalClicks) * 100).toFixed(2) : 0
+      },
+      referralChain,
+      commissions
+    });
+  } catch (error) {
+    console.error('My post analytics error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Get user network stats
 router.get('/network/:userId', auth, async (req, res) => {
   try {
     const { userId } = req.params;
 
-    // Get direct referrals (level 1)
-    const level1Referrals = await Referral.find({ referrer: userId }).populate('post');
+    const networkStats = await NetworkService.calculateNetworkLevels(userId);
 
-    // Get level 2 referrals (referrals of referrals)
-    const level1UserIds = level1Referrals.map(r => r._id); // Wait, no: referrals don't have user, wait.
-
-    // Referral has referrer (user), but to get level 2, need referrals where referrer is in level1 users.
-
-    // But Referral.referrer is ObjectId of user.
-
-    // So, get users who were referred by this user.
-
-    // But Referral doesn't have referee, only referrer.
-
-    // From PROJECT_ANALYSIS.md: Referral - _id, post_id, referrer_id, referee_id, level, platform, location, device, timestamp, clicks
-
-    // The model has referee_id, but in the code, Referral model has referrer, not referee.
-
-    // In models/Referral.js, let's check.
-
-    // From earlier read: Referral has referrer, not referee.
-
-    // In routes/referrals.js: router.post('/track', async (req, res) => { const { postId, referrerId, ... } Referral({ post: postId, referrer: referrerId, ... })
-
-    // So, referrer is the person who shared, but no referee (the person who clicked).
-
-    // For network, it's multi-level based on sharing chain.
-
-    // In convert, it distributes to all in the chain for that post.
-
-    // For network, perhaps count unique referrers in chains where user is involved.
-
-    // This is complex. For simplicity, count direct referrals as level 1, and indirect as level 2+.
-
-    // But since no referee, perhaps count commissions or something.
-
-    // For now, let's count referrals where referrer is user (direct), and referrals where post is created by user (indirect?).
-
-    // Perhaps get all referrals for posts created by user, and count levels.
-
-    // But level is not stored.
-
-    // To simplify, let's get:
-
-    // Level 1: Referrals where referrer is user
-
-    // Level 2: Referrals where referrer is someone referred by user (but no referee).
-
-    // Since no referee, perhaps assume level 1 is direct shares, level 2 is shares from those.
-
-    // But it's hard without referee.
-
-    // Perhaps for MVP, just count direct referrals.
-
-    // Let's add level 1 count.
-
-    const level1Count = await Referral.countDocuments({ referrer: userId });
-
-    // For level 2, perhaps count referrals where the referrer has been referred by this user, but since no chain, hard.
-
-    // For now, set level2 to 0.
-
-    res.json({
-      level1: level1Count,
-      level2: 0,
-      total: level1Count
-    });
+    res.json(networkStats);
   } catch (error) {
+    console.error('Network stats error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -360,6 +432,20 @@ router.get('/commissions/:userId', auth, async (req, res) => {
 
     res.json(commissions);
   } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get referral chain for visualization
+router.get('/referral-chain/:userId', auth, async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const referralChain = await NetworkService.getReferralChain(userId);
+
+    res.json(referralChain);
+  } catch (error) {
+    console.error('Referral chain error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

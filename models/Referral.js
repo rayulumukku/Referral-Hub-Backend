@@ -29,14 +29,39 @@ const referralSchema = new mongoose.Schema({
     longitude: Number,
     city: String,
     state: String,
+    country: String,
+    timezone: String,
+    accuracy: Number,
   },
   device: {
     type: String,
     enum: ['desktop', 'mobile', 'tablet'],
+    required: true,
   },
   browser: String,
-  screenSize: String,
+  userAgent: String,
+  screenSize: {
+    width: Number,
+    height: Number,
+  },
+  ipAddress: String,
+  networkInfo: {
+    isp: String,
+    connectionType: String,
+  },
+  coordinates: {
+    latitude: Number,
+    longitude: Number,
+    accuracy: Number,
+  },
+  sessionId: String,
+  referrer: String,
+  language: String,
   clicks: {
+    type: Number,
+    default: 1, // Each referral represents at least 1 click
+  },
+  shares: {
     type: Number,
     default: 0,
   },
@@ -44,8 +69,13 @@ const referralSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
-  distance: Number, // in km
-  timeTaken: Number, // in minutes
+  distance: Number, // in km from original post location
+  timeTaken: Number, // in minutes from post creation
+  chainPosition: Number, // Position in the referral chain
+  parentReferral: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Referral',
+  }, // Links to the referral that led to this one
 }, {
   timestamps: true,
 });

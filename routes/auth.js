@@ -7,10 +7,19 @@ const ActivityService = require('../services/activityService');
 
 const router = express.Router();
 
+// Get io instance from server.js
+let io;
+const setIoInstance = (ioInstance) => {
+  io = ioInstance;
+};
+
+// Export the function to be called from server.js
+module.exports.setIoInstance = setIoInstance;
+
 // Register
 router.post('/register', async (req, res) => {
   try {
-    const { email, username, password, type, platform, device, browser, userAgent, screenSize, coordinates } = req.body;
+    const { email, username, password, type, platform, device, browser, userAgent, screenSize, coordinates, postId } = req.body;
 
     // Check if user exists
     const existingUser = await User.findOne({ $or: [{ email }, { username }] });
@@ -35,6 +44,47 @@ router.post('/register', async (req, res) => {
       role = 'admin';
     }
 
+    // Handle referral if postId is provided
+    let referrerId = null;
+    let referralRecord = null;
+
+    if (postId) {
+      const Post = require('../models/Post');
+      const Referral = require('../models/Referral');
+
+      const post = await Post.findById(postId);
+      if (post) {
+        referrerId = post.creator;
+
+        // Create referral record
+        referralRecord = new Referral({
+          post: postId,
+          referrer: referrerId,
+          referee: null, // Will be set after user creation
+          level: 1,
+          platform: platform || 'web',
+          device: device || 'desktop',
+          location: {
+            latitude: coordinates?.latitude,
+            longitude: coordinates?.longitude,
+            city: coordinates?.city,
+            state: coordinates?.state,
+            country: coordinates?.country,
+            timezone: coordinates?.timezone,
+            accuracy: coordinates?.accuracy
+          },
+          browser: browser,
+          userAgent: userAgent,
+          screenSize: screenSize,
+          ipAddress: req.ip,
+          coordinates: coordinates,
+          sessionId: req.sessionID
+        });
+
+        await referralRecord.save();
+      }
+    }
+
     // Create user
     const user = new User({
       email,
@@ -43,12 +93,26 @@ router.post('/register', async (req, res) => {
       type,
       credits,
       role,
+      referrer: referrerId,
     });
 
     await user.save();
 
+    // Update referral record with referee
+    if (referralRecord) {
+      referralRecord.referee = user._id;
+      await referralRecord.save();
+
+      // Add to referrer's direct referrals
+      if (referrerId) {
+        await User.findByIdAndUpdate(referrerId, {
+          $addToSet: { 'network.directReferrals': user._id }
+        });
+      }
+    }
+
     // Track user registration activity with metadata
-    await ActivityService.trackUserRegistration(user._id, null, {
+    await ActivityService.trackUserRegistration(user._id, referrerId, {
       platform: platform || 'web',
       device: device || 'desktop',
       browser: browser || req.headers['user-agent']?.split(' ')[0] || 'Unknown',
@@ -57,6 +121,17 @@ router.post('/register', async (req, res) => {
       coordinates: coordinates || {},
       ipAddress: req.ip
     });
+
+    // Emit real-time user analytics update for referrer
+    if (referrerId && io) {
+      io.to(`user_${referrerId}`).emit('user_analytics_update', {
+        type: 'new_referral_user',
+        userId: referrerId,
+        newUserId: user._id,
+        newUserType: user.type,
+        timestamp: new Date()
+      });
+    }
 
     // Generate token
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
@@ -74,6 +149,7 @@ router.post('/register', async (req, res) => {
       },
     });
   } catch (error) {
+    console.error('Registration error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

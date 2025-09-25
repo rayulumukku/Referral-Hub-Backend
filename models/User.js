@@ -28,6 +28,10 @@ const userSchema = new mongoose.Schema({
     company: String,
     location: String,
   },
+  referrer: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+  },
   network: {
     directReferrals: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     level: Number,
