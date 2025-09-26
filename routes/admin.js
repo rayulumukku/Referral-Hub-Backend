@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const Activity = require('../models/Activity');
 const Referral = require('../models/Referral');
 const Commission = require('../models/Commission');
@@ -252,12 +253,12 @@ router.get('/post-analytics/:postId', auth, requireAdmin, async (req, res) => {
     const { postId } = req.params;
 
     const post = await Post.findById(postId).populate('creator', 'username email');
-    const referrals = await Referral.find({ post: postId })
+    const referrals = await Referral.find({ post: new mongoose.Types.ObjectId(postId) })
       .populate('referrer', 'username email')
       .populate('referee', 'username email')
       .sort({ createdAt: 1 });
 
-    const commissions = await Commission.find({ post: postId })
+    const commissions = await Commission.find({ post: new mongoose.Types.ObjectId(postId) })
       .populate('recipient', 'username email')
       .populate('referral')
       .sort({ createdAt: -1 });
