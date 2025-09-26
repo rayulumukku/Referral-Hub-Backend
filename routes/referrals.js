@@ -13,7 +13,8 @@ const setIoInstance = (ioInstance) => {
   io = ioInstance;
 };
 
-module.exports.setIoInstance = setIoInstance;
+// Attach setIoInstance to router
+router.setIoInstance = setIoInstance;
 
 // Track referral click (public endpoint)
 router.post('/track', async (req, res) => {
@@ -264,25 +265,58 @@ router.post('/convert', auth, async (req, res) => {
   }
 });
 
-// Track share action (public endpoint)
+// Create a referral share and return a shareable URL with a referral id
 router.post('/share', async (req, res) => {
   try {
-    const { postId, platform } = req.body;
+    const { postId, platform, parentReferralId } = req.body;
     const token = req.headers.authorization?.replace('Bearer ', '');
     let userId = null;
 
-    // Try to get user from token if available
     if (token) {
       try {
         const jwt = require('jsonwebtoken');
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         userId = decoded.id;
       } catch (err) {
-        // Token invalid, continue with anonymous tracking
+        // ignore invalid token
       }
     }
 
-    // Track referral shared activity if user is logged in
+    const Post = require('../models/Post');
+    const post = await Post.findById(postId);
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found' });
+    }
+
+    // Create a seed referral representing this share action
+    const referral = new Referral({
+      post: postId,
+      referrer: userId || null,
+      referee: null,
+      platform,
+      location: null,
+      device: null,
+      browser: null,
+      userAgent: req.headers['user-agent'],
+      screenSize: null,
+      coordinates: null,
+      ipAddress: req.ip,
+      networkInfo: null,
+      sessionId: null,
+      referrer: null,
+      language: null,
+      distance: 0,
+      timeTaken: 0,
+      chainPosition: 1,
+      parentReferral: parentReferralId || null,
+    });
+    await referral.save();
+
+    // Build share URL with referral id
+    const baseUrl = process.env.FRONTEND_URL || 'https://referral-hub-frontend.vercel.app';
+    const shareUrl = `${baseUrl}/post/${postId}?ref=${referral._id}`;
+
+    // Track activity
     if (userId) {
       await ActivityService.trackReferralShared(userId, postId, platform, {
         platform,
@@ -291,9 +325,43 @@ router.post('/share', async (req, res) => {
       });
     }
 
-    res.json({ message: 'Share tracked successfully' });
+    return res.json({ referralId: referral._id, shareUrl });
   } catch (error) {
-    console.error('Share tracking error:', error);
+    console.error('Share creation error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get referral chain for a user
+router.get('/chain/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // Find all referrals where the user is involved (as referrer or referee)
+    const referrals = await Referral.find({
+      $or: [{ referrer: userId }, { referee: userId }]
+    }).populate('referrer', 'username email')
+      .populate('referee', 'username email')
+      .populate('post', 'title')
+      .sort({ createdAt: -1 });
+
+    // Build the chain structure
+    const chain = {
+      userId,
+      referrals: referrals.map(r => ({
+        _id: r._id,
+        post: r.post,
+        referrer: r.referrer,
+        referee: r.referee,
+        level: r.level,
+        chainPosition: r.chainPosition,
+        createdAt: r.createdAt
+      }))
+    };
+
+    res.json(chain);
+  } catch (error) {
+    console.error('Chain fetch error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

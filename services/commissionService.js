@@ -93,6 +93,71 @@ class CommissionService {
 
     const { chain, saleReferral } = saleData;
 
+    // Rule A: If seller directly shared to up to 5 persons (chain length 1) and one of them bought,
+    // then the distributable points are shared equally among the remaining 4 direct referees (excluding buyer),
+    // seller does not receive points. This applies when there is only one hop from creator to buyer and
+    // there are up to 5 total direct referees recorded for this post.
+    const isDirectSale = chain.length === 1 && chain[0].referrer && chain[0].parentReferral == null;
+    if (isDirectSale) {
+      // Gather all direct referrals from creator for this post
+      const directReferrals = await Referral.find({ post: postId, parentReferral: null }).sort({ createdAt: 1 });
+      // Exclude the buyer referral
+      const eligible = directReferrals.filter(r => !saleReferral || (saleReferral && r._id.toString() !== saleReferral._id.toString()));
+
+      // Share distributable equally among up to 4 remaining direct referees
+      const maxRecipients = 4;
+      const recipients = eligible.slice(0, maxRecipients);
+      if (recipients.length > 0) {
+        const amountPer = Math.floor(distribution.distributableAmount / recipients.length);
+        for (let i = 0; i < recipients.length; i++) {
+          const r = recipients[i];
+          if (r.referrer) {
+            await this.createCommission({
+              post: postId,
+              referral: r._id,
+              recipient: r.referrer,
+              amount: amountPer,
+              percentage: Math.floor((amountPer / distribution.distributableAmount) * 100),
+              distributionType: 'direct_share_equal',
+              chainPosition: 1,
+              totalPointsPool: distribution.pointsPool,
+              platformFee: distribution.platformFee,
+              distributableAmount: distribution.distributableAmount,
+              saleDetails: {
+                soldAt,
+                buyerInfo: {
+                  name: saleReferral?.referee?.username || 'Unknown',
+                  email: saleReferral?.referee?.email || 'Unknown'
+                },
+                soldPrice
+              }
+            });
+          }
+        }
+      }
+
+      // Platform fee commission (10%)
+      await this.createCommission({
+        post: postId,
+        recipient: null,
+        amount: distribution.platformFee,
+        percentage: 10,
+        distributionType: 'platform_fee',
+        totalPointsPool: distribution.pointsPool,
+        platformFee: distribution.platformFee,
+        distributableAmount: distribution.distributableAmount,
+        saleDetails: {
+          soldAt,
+          buyerInfo: {
+            name: saleReferral?.referee?.username || 'Unknown',
+            email: saleReferral?.referee?.email || 'Unknown'
+          },
+          soldPrice
+        }
+      });
+      return;
+    }
+
     // Remove the post creator from the chain (they don't get commission)
     const filteredChain = chain.filter(ref =>
       ref.referrer._id.toString() !== post.creator._id.toString()
@@ -121,7 +186,7 @@ class CommissionService {
       return;
     }
 
-    // Apply the distribution algorithm
+    // Rule B (chain sharing): Apply the 20% (first), 30% (last), remaining equally among others
     const firstPerson = filteredChain[0]; // 20% of distributable amount
     const lastPerson = filteredChain[filteredChain.length - 1]; // 30% of distributable amount
     const remainingPeople = filteredChain.slice(1, -1); // Remaining people share the rest

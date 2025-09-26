@@ -13,8 +13,8 @@ const setIoInstance = (ioInstance) => {
   io = ioInstance;
 };
 
-// Export the function to be called from server.js
-module.exports.setIoInstance = setIoInstance;
+// Attach setIoInstance to router
+router.setIoInstance = setIoInstance;
 
 // Register
 router.post('/register', async (req, res) => {

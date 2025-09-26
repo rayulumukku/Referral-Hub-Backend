@@ -9,14 +9,14 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: ["http://localhost:3000", "https://referral-hub-frontend.vercel.app"],
+    origin: ["http://localhost:3000", "https://referral-hub-frontend.vercel.app", "https://referral-hub-frontend.vercel.app/"],
     methods: ["GET", "POST"]
   }
 });
 
 // Middleware
 app.use(cors({
-  origin: ["http://localhost:3000", "https://referral-hub-frontend.vercel.app"],
+  origin: ["http://localhost:3000", "https://referral-hub-frontend.vercel.app", "https://referral-hub-frontend.vercel.app/"],
   credentials: true
 }));
 app.use(express.json());
@@ -71,6 +71,7 @@ const analyticsRouter = require('./routes/analytics');
 analyticsRouter.setIoInstance && analyticsRouter.setIoInstance(io); // Pass io instance to analytics router if method exists
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/admin', require('./routes/admin'));
+app.use('/api/users', require('./routes/users'));
 console.log('All routes loaded');
 
 const PORT = process.env.PORT || 5001;

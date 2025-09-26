@@ -25,7 +25,7 @@ const commissionSchema = new mongoose.Schema({
   },
   distributionType: {
     type: String,
-    enum: ['platform_fee', 'direct_share', 'chain_first', 'chain_last', 'chain_remaining'],
+    enum: ['platform_fee', 'direct_share', 'direct_share_equal', 'chain_first', 'chain_last', 'chain_remaining'],
     required: true,
   },
   chainPosition: Number, // Position in the referral chain

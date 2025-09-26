@@ -42,7 +42,7 @@ async function migrateReferralLinks() {
     await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/referral-hub');
     console.log('Connected to MongoDB for referral links migration');
 
-    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const baseUrl = process.env.FRONTEND_URL || 'https://referral-hub-frontend.vercel.app';
 
     const posts = await Post.find({});
     console.log(`Found ${posts.length} posts to update`);

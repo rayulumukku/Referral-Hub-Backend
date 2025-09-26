@@ -106,7 +106,7 @@ router.post('/', auth, async (req, res) => {
     await post.save();
 
     // Generate referral link using the actual app URL and saved post ID
-    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const baseUrl = process.env.FRONTEND_URL || 'https://referral-hub-frontend.vercel.app';
     const referralLink = `${baseUrl}/post/${post._id}`;
 
     // Generate QR code for referral link
@@ -167,9 +167,19 @@ router.get('/debug', async (req, res) => {
       allPosts: allPosts.map(p => ({
         id: p._id,
         title: p.title,
+        description: p.description,
+        category: p.category,
+        originalPrice: p.originalPrice,
+        price: p.price,
+        photos: p.photos,
+        referralLink: p.referralLink,
+        qrCode: p.qrCode,
         creator: p.creator?.username,
+        creatorEmail: p.creator?.email,
         creatorRole: p.creator?.role,
         status: p.status,
+        reach: p.reach,
+        conversions: p.conversions,
         createdAt: p.createdAt
       }))
     });
