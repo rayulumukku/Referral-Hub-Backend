@@ -44,6 +44,19 @@ router.post('/register', async (req, res) => {
       role = 'admin';
     }
 
+    // Username is required from frontend
+    if (!username || username.trim() === '') {
+      return res.status(400).json({ message: 'Username is required' });
+    }
+
+    // Check if username is already taken
+    const existingUsername = await User.findOne({ username: username.trim() });
+    if (existingUsername) {
+      return res.status(400).json({ message: 'Username already taken' });
+    }
+
+    const finalUsername = username.trim();
+
     // Handle referral if postId is provided
     let referrerId = null;
     let referralRecord = null;
@@ -88,7 +101,7 @@ router.post('/register', async (req, res) => {
     // Create user
     const user = new User({
       email,
-      username,
+      username: finalUsername,
       password: hashedPassword,
       type,
       credits,
