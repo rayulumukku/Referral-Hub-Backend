@@ -4,6 +4,7 @@ const User = require('../models/User');
 const auth = require('../middleware/auth');
 const ActivityService = require('../services/activityService');
 const CommissionService = require('../services/commissionService');
+const GamificationService = require('../services/gamificationService');
 const QRCode = require('qrcode');
 
 const router = express.Router();
@@ -81,21 +82,31 @@ router.post('/', auth, async (req, res) => {
       title,
       description,
       category,
-      originalPrice,
-      price,
+      originalPrice: originalPrice || 0,
+      price: price || 0,
       photos: photos.slice(0, 4), // Limit to 4 photos
       pointsPool: distribution.pointsPool,
       platformFee: distribution.platformFee,
       distributablePoints: distribution.distributableAmount,
-      location: location || {},
+      reach: 0,
+      conversions: 0,
+      location: location || {
+        latitude: coordinates?.latitude || 0,
+        longitude: coordinates?.longitude || 0,
+        city: 'Unknown',
+        state: 'Unknown',
+        country: 'Unknown',
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+      },
       creationMetadata: {
         platform: platform,
         device: detectedDevice,
-        browser: browser || req.headers['user-agent']?.split(' ')[0] || 'Unknown',
-        userAgent: userAgent || req.headers['user-agent'] || 'Unknown',
-        screenSize: screenSize || {},
+        browser: browser || req.headers['user-agent']?.split(' ')[0] || 'Chrome',
+        userAgent: userAgent || req.headers['user-agent'] || 'Mozilla/5.0',
+        screenSize: screenSize || { width: 1920, height: 1080 },
         ipAddress: ipAddress,
-        coordinates: coordinates || {},
+        coordinates: coordinates || { latitude: 0, longitude: 0, accuracy: 0 },
+        networkInfo: { isp: 'Unknown', connectionType: 'unknown' },
         timezone: req.headers['timezone'] || Intl.DateTimeFormat().resolvedOptions().timeZone,
         language: req.headers['accept-language']?.split(',')[0] || 'en-US',
         referrer: req.headers['referer'] || req.headers['referrer'] || 'Direct',
@@ -135,6 +146,12 @@ router.post('/', auth, async (req, res) => {
       userAgent: userAgent || req.headers['user-agent']
     });
 
+    // Check for badge achievements
+    await GamificationService.checkAndAwardBadges(req.user.id);
+
+    // Update user streak
+    await GamificationService.updateStreak(req.user.id);
+
     res.status(201).json(post);
   } catch (error) {
     console.error('Post creation error:', error);
@@ -142,13 +159,210 @@ router.post('/', auth, async (req, res) => {
   }
 });
 
-// Get all posts
+// Get trending posts
+router.get('/trending', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 10;
+
+    // Trending algorithm: sort by combination of recent activity, reach, and conversions
+    // Posts from last 7 days with high engagement
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    const trendingPosts = await Post.find({
+      status: 'active',
+      createdAt: { $gte: sevenDaysAgo }
+    })
+    .populate('creator', 'username email type profile isVerified kyc')
+    .sort({
+      // Custom scoring: conversions * 10 + reach * 0.1 + (recent bonus)
+      conversions: -1,
+      reach: -1,
+      createdAt: -1
+    })
+    .limit(limit);
+
+    // Add trending score for frontend
+    const postsWithScore = trendingPosts.map(post => ({
+      ...post.toObject(),
+      trendingScore: (post.conversions * 10) + (post.reach * 0.1) + Math.max(0, (7 - Math.floor((new Date() - post.createdAt) / (1000 * 60 * 60 * 24))) * 2)
+    }));
+
+    // Sort by trending score
+    postsWithScore.sort((a, b) => b.trendingScore - a.trendingScore);
+
+    res.json({
+      posts: postsWithScore,
+      total: postsWithScore.length
+    });
+  } catch (error) {
+    console.error('Error fetching trending posts:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get all posts with advanced search and filtering
 router.get('/', async (req, res) => {
   try {
-    const posts = await Post.find({ status: 'active' }).populate('creator', 'username email type');
-    // Include creationMetadata in response for admin access
-    res.json(posts);
+    const {
+      search,
+      category,
+      status = 'active',
+      priceMin,
+      priceMax,
+      dateStart,
+      dateEnd,
+      location,
+      creator,
+      minReach,
+      minConversions,
+      sortBy = 'createdAt',
+      sortOrder = 'desc',
+      page = 1,
+      limit = 20
+    } = req.query;
+
+    // Build query object
+    let query = {};
+
+    // Status filter
+    if (status !== 'all') {
+      query.status = status;
+    }
+
+    // Search filter
+    if (search) {
+      query.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Category filter
+    if (category && category !== '') {
+      query.category = category;
+    }
+
+    // Price range filter
+    if (priceMin || priceMax) {
+      query.price = {};
+      if (priceMin) query.price.$gte = parseFloat(priceMin);
+      if (priceMax) query.price.$lte = parseFloat(priceMax);
+    }
+
+    // Date range filter
+    if (dateStart || dateEnd) {
+      query.createdAt = {};
+      if (dateStart) query.createdAt.$gte = new Date(dateStart);
+      if (dateEnd) query.createdAt.$lte = new Date(dateEnd);
+    }
+
+    // Location filter
+    if (location) {
+      query.$or = query.$or || [];
+      query.$or.push(
+        { 'location.city': { $regex: location, $options: 'i' } },
+        { 'location.state': { $regex: location, $options: 'i' } },
+        { 'location.country': { $regex: location, $options: 'i' } }
+      );
+    }
+
+    // Creator filter
+    if (creator) {
+      // First find users matching the creator search
+      const User = require('../models/User');
+      const users = await User.find({
+        $or: [
+          { username: { $regex: creator, $options: 'i' } },
+          { email: { $regex: creator, $options: 'i' } }
+        ]
+      }).select('_id');
+
+      const userIds = users.map(user => user._id);
+      if (userIds.length > 0) {
+        query.creator = { $in: userIds };
+      } else {
+        // No matching users found, return empty result
+        return res.json({
+          posts: [],
+          pagination: {
+            currentPage: parseInt(page),
+            totalPages: 0,
+            totalPosts: 0,
+            hasNextPage: false,
+            hasPrevPage: false,
+          }
+        });
+      }
+    }
+
+    // Reach filter
+    if (minReach) {
+      query.reach = { $gte: parseInt(minReach) };
+    }
+
+    // Conversions filter
+    if (minConversions) {
+      query.conversions = { $gte: parseInt(minConversions) };
+    }
+
+    // Build sort object
+    let sort = {};
+    switch (sortBy) {
+      case 'newest':
+        sort.createdAt = sortOrder === 'asc' ? 1 : -1;
+        break;
+      case 'oldest':
+        sort.createdAt = sortOrder === 'asc' ? 1 : -1;
+        break;
+      case 'price_high':
+        sort.price = -1;
+        break;
+      case 'price_low':
+        sort.price = 1;
+        break;
+      case 'reach':
+        sort.reach = -1;
+        break;
+      case 'conversions':
+        sort.conversions = -1;
+        break;
+      case 'engagement':
+        // Sort by combined engagement (likes + comments + bookmarks)
+        // This would require aggregation, for now sort by reach
+        sort.reach = -1;
+        break;
+      default:
+        sort.createdAt = -1;
+    }
+
+    // Execute query with pagination
+    const posts = await Post.find(query)
+      .populate('creator', 'username email type profile isVerified kyc')
+      .sort(sort)
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
+
+    const total = await Post.countDocuments(query);
+
+    res.json({
+      posts,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(total / limit),
+        totalPosts: total,
+        hasNextPage: page * limit < total,
+        hasPrevPage: page > 1,
+      },
+      filters: {
+        applied: Object.keys(req.query).filter(key =>
+          req.query[key] && req.query[key] !== '' && req.query[key] !== 'all'
+        ).length,
+        query: req.query
+      }
+    });
   } catch (error) {
+    console.error('Error fetching posts:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -156,6 +370,7 @@ router.get('/', async (req, res) => {
 // Debug: Get all posts (including inactive) - for admin debugging
 router.get('/debug', async (req, res) => {
   try {
+    const allPostsRaw = await Post.find({});
     const allPosts = await Post.find({}).populate('creator', 'username email type role');
     const activePosts = await Post.find({ status: 'active' }).populate('creator', 'username email type role');
     const inactivePosts = await Post.find({ status: 'inactive' }).populate('creator', 'username email type role');
@@ -164,6 +379,7 @@ router.get('/debug', async (req, res) => {
       total: allPosts.length,
       active: activePosts.length,
       inactive: inactivePosts.length,
+      rawCreatorField: allPostsRaw[0]?.creator, // Show raw creator field
       allPosts: allPosts.map(p => ({
         id: p._id,
         title: p.title,
@@ -177,6 +393,7 @@ router.get('/debug', async (req, res) => {
         creator: p.creator?.username,
         creatorEmail: p.creator?.email,
         creatorRole: p.creator?.role,
+        creatorObject: p.creator, // Show full creator object
         status: p.status,
         reach: p.reach,
         conversions: p.conversions,
@@ -281,7 +498,7 @@ router.put('/:id/sold', auth, async (req, res) => {
 // Get single post by ID (public access)
 router.get('/:id', async (req, res) => {
   try {
-    const post = await Post.findById(req.params.id).populate('creator', 'username email type profile');
+    const post = await Post.findById(req.params.id).populate('creator', 'username email type profile isVerified kyc');
     if (!post) {
       return res.status(404).json({ message: 'Post not found' });
     }
@@ -302,6 +519,19 @@ router.put('/:id/view', async (req, res) => {
     if (!post) {
       return res.status(404).json({ message: 'Post not found' });
     }
+
+    // Emit real-time update for post analytics
+    if (io) {
+      const postOwner = await Post.findById(req.params.id).populate('creator');
+      if (postOwner && postOwner.creator) {
+        io.to(`user_${postOwner.creator._id}`).emit('post_analytics_update', {
+          postId: req.params.id,
+          type: 'reach_increase',
+          newReach: post.reach
+        });
+      }
+    }
+
     res.json({ message: 'View tracked', reach: post.reach });
   } catch (error) {
     console.error('Error tracking view:', error);

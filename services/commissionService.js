@@ -186,49 +186,24 @@ class CommissionService {
       return;
     }
 
-    // Rule B (chain sharing): Apply the 20% (first), 30% (last), remaining equally among others
-    const firstPerson = filteredChain[0]; // 20% of distributable amount
-    const lastPerson = filteredChain[filteredChain.length - 1]; // 30% of distributable amount
-    const remainingPeople = filteredChain.slice(1, -1); // Remaining people share the rest
+    // Simplified commission system:
+    // - 30% to the person who directly shared to the buyer (right person)
+    // - 20% to each person in the referral chain (correct chain sharing)
 
-    const firstPersonAmount = Math.floor(distribution.distributableAmount * 0.2);
-    const lastPersonAmount = Math.floor(distribution.distributableAmount * 0.3);
-    const remainingAmount = distribution.distributableAmount - firstPersonAmount - lastPersonAmount;
+    const directReferrer = saleReferral; // The person who directly referred the buyer
+    const chainMembers = filteredChain.filter(ref => ref._id.toString() !== directReferrer._id.toString());
 
-    // Distribute to first person (20%)
-    if (firstPerson.referrer) {
+    // 30% to direct referrer (right person)
+    const directReferrerAmount = Math.floor(distribution.distributableAmount * 0.3);
+    if (directReferrer.referrer) {
       await this.createCommission({
         post: postId,
-        referral: firstPerson._id,
-        recipient: firstPerson.referrer._id,
-        amount: firstPersonAmount,
-        percentage: 20,
-        distributionType: 'chain_first',
-        chainPosition: 1,
-        totalPointsPool: distribution.pointsPool,
-        platformFee: distribution.platformFee,
-        distributableAmount: distribution.distributableAmount,
-        saleDetails: {
-          soldAt,
-          buyerInfo: {
-            name: saleReferral.referee?.username || 'Unknown',
-            email: saleReferral.referee?.email || 'Unknown'
-          },
-          soldPrice
-        }
-      });
-    }
-
-    // Distribute to last person (30%)
-    if (lastPerson.referrer && lastPerson._id.toString() !== firstPerson._id.toString()) {
-      await this.createCommission({
-        post: postId,
-        referral: lastPerson._id,
-        recipient: lastPerson.referrer._id,
-        amount: lastPersonAmount,
+        referral: directReferrer._id,
+        recipient: directReferrer.referrer._id,
+        amount: directReferrerAmount,
         percentage: 30,
-        distributionType: 'chain_last',
-        chainPosition: filteredChain.length,
+        distributionType: 'direct_referral',
+        chainPosition: filteredChain.length, // Last in chain
         totalPointsPool: distribution.pointsPool,
         platformFee: distribution.platformFee,
         distributableAmount: distribution.distributableAmount,
@@ -243,21 +218,22 @@ class CommissionService {
       });
     }
 
-    // Distribute remaining amount among other chain members
-    if (remainingPeople.length > 0 && remainingAmount > 0) {
-      const amountPerPerson = Math.floor(remainingAmount / remainingPeople.length);
+    // 20% to each remaining chain member (correct chain sharing)
+    const remainingAmount = distribution.distributableAmount - directReferrerAmount;
+    if (chainMembers.length > 0 && remainingAmount > 0) {
+      const amountPerChainMember = Math.floor(remainingAmount / chainMembers.length);
 
-      for (let i = 0; i < remainingPeople.length; i++) {
-        const person = remainingPeople[i];
-        if (person.referrer) {
+      for (let i = 0; i < chainMembers.length; i++) {
+        const member = chainMembers[i];
+        if (member.referrer) {
           await this.createCommission({
             post: postId,
-            referral: person._id,
-            recipient: person.referrer._id,
-            amount: amountPerPerson,
-            percentage: Math.floor((amountPerPerson / distribution.distributableAmount) * 100),
-            distributionType: 'chain_remaining',
-            chainPosition: i + 2, // Position in chain (after first person)
+            referral: member._id,
+            recipient: member.referrer._id,
+            amount: amountPerChainMember,
+            percentage: 20,
+            distributionType: 'chain_sharing',
+            chainPosition: i + 1, // Position in chain
             totalPointsPool: distribution.pointsPool,
             platformFee: distribution.platformFee,
             distributableAmount: distribution.distributableAmount,

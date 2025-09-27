@@ -4,6 +4,8 @@ const Commission = require('../models/Commission');
 const User = require('../models/User');
 const auth = require('../middleware/auth');
 const ActivityService = require('../services/activityService');
+const GamificationService = require('../services/gamificationService');
+const NotificationService = require('../services/notificationService');
 
 const router = express.Router();
 
@@ -75,22 +77,28 @@ router.post('/track', async (req, res) => {
       post: postId,
       referrer: referrerId || null, // Allow null for anonymous referrals
       referee: refereeId,
-      platform,
-      location,
-      device,
-      browser,
-      userAgent,
-      screenSize,
-      coordinates,
-      ipAddress,
-      networkInfo,
-      sessionId,
-      referrer: httpReferrer,
-      language,
-      distance,
-      timeTaken,
-      chainPosition,
+      platform: platform || 'web',
+      location: location || {
+        city: 'Unknown',
+        state: 'Unknown',
+        country: 'Unknown',
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+      },
+      device: device || 'desktop',
+      browser: browser || 'Chrome',
+      userAgent: userAgent || 'Mozilla/5.0',
+      screenSize: screenSize || { width: 1920, height: 1080 },
+      coordinates: coordinates || { latitude: 0, longitude: 0, accuracy: 0 },
+      ipAddress: ipAddress || req.ip,
+      networkInfo: networkInfo || { isp: 'Unknown', connectionType: 'unknown' },
+      sessionId: sessionId || `session_${Date.now()}`,
+      referrer: httpReferrer || 'Direct',
+      language: language || 'en-US',
+      distance: distance || 0,
+      timeTaken: timeTaken || 0,
+      chainPosition: chainPosition || 1,
       parentReferral: parentReferralId,
+      level: 1
     });
 
     await referral.save();
@@ -103,6 +111,17 @@ router.post('/track', async (req, res) => {
       userAgent: browser,
       ip: req.ip
     });
+
+    // Send notification for referral click
+    if (referrerId) {
+      await NotificationService.notifyReferralClick(referral);
+
+      // Check for badge achievements
+      await GamificationService.checkAndAwardBadges(referrerId);
+
+      // Update user streak
+      await GamificationService.updateStreak(referrerId);
+    }
 
     // Update post reach
     await Post.findByIdAndUpdate(postId, { $inc: { reach: 1 } });
@@ -209,6 +228,9 @@ router.post('/convert', auth, async (req, res) => {
 
       // Track commission earned activity
       await ActivityService.trackCommissionEarned(referrals[i].referrer, amount, referrals[i]._id, level);
+
+      // Send notification for commission earned
+      await NotificationService.notifyCommissionEarned(commission);
 
       // Update user credits (points become credits)
       await User.findByIdAndUpdate(referrals[i].referrer, { $inc: { credits: amount } });

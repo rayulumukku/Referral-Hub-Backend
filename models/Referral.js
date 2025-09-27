@@ -55,7 +55,6 @@ const referralSchema = new mongoose.Schema({
     accuracy: Number,
   },
   sessionId: String,
-  referrer: String,
   language: String,
   clicks: {
     type: Number,

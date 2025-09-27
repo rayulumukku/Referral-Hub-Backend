@@ -64,6 +64,85 @@ const postSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
+  analytics: {
+    views: {
+      type: Number,
+      default: 0,
+    },
+    uniqueViewers: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    }],
+    shares: {
+      type: Number,
+      default: 0,
+    },
+    sharesByPlatform: {
+      type: Map,
+      of: Number,
+      default: {},
+    },
+    conversions: {
+      type: Number,
+      default: 0,
+    },
+    engagement: {
+      likes: { type: Number, default: 0 },
+      comments: { type: Number, default: 0 },
+      bookmarks: { type: Number, default: 0 },
+      reports: { type: Number, default: 0 },
+    },
+    totalTimeSpent: {
+      type: Number,
+      default: 0, // in seconds
+    },
+    maxScrollDepth: {
+      type: Number,
+      default: 0, // percentage
+    },
+    viewHistory: [{
+      userId: mongoose.Schema.Types.ObjectId,
+      timestamp: Date,
+      platform: String,
+      device: String,
+      browser: String,
+      ipAddress: String,
+      referrer: String,
+      sessionId: String,
+    }],
+    shareHistory: [{
+      userId: mongoose.Schema.Types.ObjectId,
+      platform: String,
+      timestamp: Date,
+      ipAddress: String,
+      userAgent: String,
+    }],
+    conversionHistory: [{
+      userId: mongoose.Schema.Types.ObjectId,
+      timestamp: Date,
+      amount: Number,
+      currency: String,
+      source: String,
+    }],
+    engagementHistory: [{
+      userId: mongoose.Schema.Types.ObjectId,
+      type: String,
+      timestamp: Date,
+      metadata: mongoose.Schema.Types.Mixed,
+    }],
+    timeTracking: [{
+      userId: mongoose.Schema.Types.ObjectId,
+      timeSpent: Number,
+      timestamp: Date,
+      sessionId: String,
+    }],
+    scrollTracking: [{
+      userId: mongoose.Schema.Types.ObjectId,
+      scrollDepth: Number,
+      timestamp: Date,
+      sessionId: String,
+    }],
+  },
   location: {
     latitude: Number,
     longitude: Number,
