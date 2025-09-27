@@ -77,7 +77,7 @@ notificationSchema.statics.createNotification = async function(data) {
   // Emit real-time notification
   const io = require('../server').getIo();
   if (io) {
-    io.to(`user_${data.recipient}`).emit('notification', {
+    io.to(`notifications_${data.recipient}`).emit('notification', {
       ...notification.toObject(),
       recipient: notification.recipient,
     });

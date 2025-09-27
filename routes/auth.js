@@ -81,7 +81,12 @@ router.post('/register', async (req, res) => {
     if (referralId) {
       // Handle referral link with referralId
       const Referral = require('../models/Referral');
-      parentReferral = await Referral.findById(referralId);
+      try {
+        parentReferral = await Referral.findById(referralId);
+      } catch (error) {
+        console.error('Invalid referralId:', referralId, error);
+        // Skip referral processing for invalid ID
+      }
       if (parentReferral) {
         referrerId = parentReferral.referrer;
 
@@ -119,36 +124,41 @@ router.post('/register', async (req, res) => {
       const Post = require('../models/Post');
       const Referral = require('../models/Referral');
 
-      const post = await Post.findById(postId);
-      if (post) {
-        referrerId = post.creator;
+      try {
+        const post = await Post.findById(postId);
+        if (post) {
+          referrerId = post.creator;
 
-        // Create referral record
-        referralRecord = new Referral({
-          post: postId,
-          referrer: referrerId,
-          referee: null, // Will be set after user creation
-          level: 1,
-          platform: platform || 'web',
-          device: device || 'desktop',
-          location: {
-            latitude: coordinates?.latitude,
-            longitude: coordinates?.longitude,
-            city: coordinates?.city,
-            state: coordinates?.state,
-            country: coordinates?.country,
-            timezone: coordinates?.timezone,
-            accuracy: coordinates?.accuracy
-          },
-          browser: browser,
-          userAgent: userAgent,
-          screenSize: screenSize,
-          ipAddress: req.ip,
-          coordinates: coordinates,
-          sessionId: req.sessionID
-        });
+          // Create referral record
+          referralRecord = new Referral({
+            post: postId,
+            referrer: referrerId,
+            referee: null, // Will be set after user creation
+            level: 1,
+            platform: platform || 'web',
+            device: device || 'desktop',
+            location: {
+              latitude: coordinates?.latitude,
+              longitude: coordinates?.longitude,
+              city: coordinates?.city,
+              state: coordinates?.state,
+              country: coordinates?.country,
+              timezone: coordinates?.timezone,
+              accuracy: coordinates?.accuracy
+            },
+            browser: browser,
+            userAgent: userAgent,
+            screenSize: screenSize,
+            ipAddress: req.ip,
+            coordinates: coordinates,
+            sessionId: req.sessionID
+          });
 
-        await referralRecord.save();
+          await referralRecord.save();
+        }
+      } catch (error) {
+        console.error('Invalid postId:', postId, error);
+        // Skip referral processing for invalid ID
       }
     }
 
@@ -318,7 +328,10 @@ router.post('/register', async (req, res) => {
   } catch (error) {
     console.error('Registration error:', error);
     console.error('Error stack:', error.stack);
-    
+    console.error('Error name:', error.name);
+    console.error('Error code:', error.code);
+    console.error('Error message:', error.message);
+
     // Send more specific error messages
     if (error.name === 'ValidationError') {
       const validationErrors = Object.values(error.errors).map(err => err.message);
@@ -327,7 +340,7 @@ router.post('/register', async (req, res) => {
         errors: validationErrors
       });
     }
-    
+
     if (error.code === 11000) {
       // Duplicate key error
       const field = Object.keys(error.keyPattern)[0];
@@ -335,7 +348,7 @@ router.post('/register', async (req, res) => {
         message: `${field} already exists`
       });
     }
-    
+
     res.status(500).json({
       message: 'Server error',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'

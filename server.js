@@ -109,3 +109,6 @@ const PORT = process.env.PORT || 5001;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
+// Export io instance for use in other modules
+module.exports = { getIo: () => io };
