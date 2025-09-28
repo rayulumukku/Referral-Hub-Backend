@@ -33,7 +33,8 @@ router.post('/register', async (req, res) => {
     const existingUser = await User.findOne({ $or: [{ email }, { username }] });
     if (existingUser) {
       console.log('User already exists:', existingUser.email);
-      return res.status(400).json({ message: 'User already exists' });
+      const field = existingUser.email === email ? 'email' : 'username';
+      return res.status(400).json({ message: `${field.charAt(0).toUpperCase() + field.slice(1)} already exists` });
     }
 
     // Hash password
@@ -151,7 +152,8 @@ router.post('/register', async (req, res) => {
             screenSize: screenSize,
             ipAddress: req.ip,
             coordinates: coordinates,
-            sessionId: req.sessionID
+            sessionId: req.sessionID,
+            chainPosition: 1
           });
 
           await referralRecord.save();

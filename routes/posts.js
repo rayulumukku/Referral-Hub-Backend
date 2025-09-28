@@ -173,7 +173,10 @@ router.get('/trending', async (req, res) => {
       status: 'active',
       createdAt: { $gte: sevenDaysAgo }
     })
-    .populate('creator', 'username email type profile isVerified kyc')
+    .populate({
+      path: 'creator',
+      select: 'username email type profile isVerified kyc'
+    })
     .sort({
       // Custom scoring: conversions * 10 + reach * 0.1 + (recent bonus)
       conversions: -1,
@@ -338,7 +341,10 @@ router.get('/', async (req, res) => {
 
     // Execute query with pagination
     const posts = await Post.find(query)
-      .populate('creator', 'username email type profile isVerified kyc')
+      .populate({
+        path: 'creator',
+        select: 'username email type profile isVerified kyc'
+      })
       .sort(sort)
       .limit(limit * 1)
       .skip((page - 1) * limit);
@@ -498,7 +504,10 @@ router.put('/:id/sold', auth, async (req, res) => {
 // Get single post by ID (public access)
 router.get('/:id', async (req, res) => {
   try {
-    const post = await Post.findById(req.params.id).populate('creator', 'username email type profile isVerified kyc');
+    const post = await Post.findById(req.params.id).populate({
+      path: 'creator',
+      select: 'username email type profile isVerified kyc'
+    });
     if (!post) {
       return res.status(404).json({ message: 'Post not found' });
     }

@@ -269,7 +269,7 @@ router.get('/my-post/:postId', auth, async (req, res) => {
 
     // Build referral chain
     const referralChain = referrals.map((ref, index) => ({
-      level: index,
+      level: 1, // All post referrals are level 1 (direct clicks)
       referrer: ref.referrer,
       location: ref.location,
       platform: ref.platform,
