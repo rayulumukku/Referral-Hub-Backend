@@ -19,15 +19,33 @@ app.use(cors({
   origin: ["http://localhost:3000", "https://referral-hub-frontend.vercel.app", "https://referral-hub-frontend.vercel.app/"],
   credentials: true
 }));
+app.set('trust proxy', 1);
 app.use(express.json());
 
 // Serve static files for uploads
 app.use('/uploads', express.static('uploads'));
 
-// Database connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/referralhub')
-.then(() => console.log('MongoDB connected'))
-.catch(err => console.log(err));
+// Database connection with retry/backoff
+const MONGODB_URI = process.env.MONGODB_URI;
+if (!MONGODB_URI) {
+  console.error('MONGODB_URI is not set. Please configure the environment variable.');
+}
+
+let connectAttempts = 0;
+async function connectWithRetry() {
+  if (!MONGODB_URI) return; // Will cause readyState!=1 and routes can respond 503
+  try {
+    await mongoose.connect(MONGODB_URI);
+    console.log('MongoDB connected');
+  } catch (err) {
+    connectAttempts += 1;
+    const delayMs = Math.min(30000, 1000 * Math.pow(2, Math.min(connectAttempts, 5)));
+    console.error(`MongoDB connection failed (attempt ${connectAttempts}):`, err.message);
+    console.log(`Retrying MongoDB connection in ${Math.round(delayMs/1000)}s...`);
+    setTimeout(connectWithRetry, delayMs);
+  }
+}
+connectWithRetry();
 
 // Socket IO
 io.on('connection', (socket) => {

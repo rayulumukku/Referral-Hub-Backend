@@ -18,6 +18,7 @@ router.setIoInstance = setIoInstance;
 
 // Use a safe JWT secret fallback to avoid crashes if env var is missing
 const jwtSecret = process.env.JWT_SECRET || 'REF_HUB_DEV_FALLBACK_SECRET_CHANGE_ME';
+const SIGNUP_MINIMAL = process.env.SIGNUP_MINIMAL ? process.env.SIGNUP_MINIMAL === 'true' : true;
 
 // Register
 router.post('/register', async (req, res) => {
@@ -185,68 +186,81 @@ router.post('/register', async (req, res) => {
     }
     */
 
-    console.log('Creating user with data:', { email, username: finalUsername, type });
+    console.log('Creating user with data:', { email, username: finalUsername, type: normalizedType, minimal: SIGNUP_MINIMAL });
 
-    // Create user with complete profile
-    const user = new User({
-      email,
-      username: finalUsername,
-      password: hashedPassword,
-      type: normalizedType,
-      credits,
-      role,
-      referrer: referrerId,
-      network: {
-        directReferrals: [],
-        level: 1
-      },
-      profile: {
-        name: '',
-        company: '',
-        location: ''
-      },
-      coordinates: { lat: 0, lng: 0 },
-      location: {
-        city: coordinates?.city || 'Unknown',
-        state: coordinates?.state || 'Unknown',
-        country: coordinates?.country || 'Unknown',
-        timezone: coordinates?.timezone || 'UTC'
-      },
-      deviceInfo: {
-        browser: browser || req.headers['user-agent']?.split(' ')[0] || 'Chrome',
-        os: 'Unknown',
-        device: device || 'desktop',
-        userAgent: userAgent || req.headers['user-agent'] || 'Mozilla/5.0',
-        screenSize: screenSize || { width: 1920, height: 1080 }
-      },
-      ipAddress: req.ip,
-      isVerified: false,
-      kyc: {
-        status: 'pending',
-        documents: {
-          idType: '',
-          idNumber: '',
-          idFront: '',
-          idBack: '',
-          selfie: ''
+    let user;
+    if (SIGNUP_MINIMAL) {
+      // Minimal safe user creation to avoid any optional schema issues
+      user = new User({
+        email,
+        username: finalUsername,
+        password: hashedPassword,
+        type: normalizedType,
+        credits,
+        role
+      });
+    } else {
+      // Full profile creation
+      user = new User({
+        email,
+        username: finalUsername,
+        password: hashedPassword,
+        type: normalizedType,
+        credits,
+        role,
+        referrer: referrerId,
+        network: {
+          directReferrals: [],
+          level: 1
         },
-        submittedAt: null,
-        reviewedAt: null,
-        reviewedBy: null,
-        rejectionReason: ''
-      },
-      badges: [],
-      gamification: {
-        totalPoints: 0,
-        level: 1,
-        experience: 0,
-        streak: {
-          current: 0,
-          longest: 0,
-          lastActivity: null
+        profile: {
+          name: '',
+          company: '',
+          location: ''
+        },
+        coordinates: { lat: 0, lng: 0 },
+        location: {
+          city: coordinates?.city || 'Unknown',
+          state: coordinates?.state || 'Unknown',
+          country: coordinates?.country || 'Unknown',
+          timezone: coordinates?.timezone || 'UTC'
+        },
+        deviceInfo: {
+          browser: browser || req.headers['user-agent']?.split(' ')[0] || 'Chrome',
+          os: 'Unknown',
+          device: device || 'desktop',
+          userAgent: userAgent || req.headers['user-agent'] || 'Mozilla/5.0',
+          screenSize: screenSize || { width: 1920, height: 1080 }
+        },
+        ipAddress: req.ip,
+        isVerified: false,
+        kyc: {
+          status: 'pending',
+          documents: {
+            idType: '',
+            idNumber: '',
+            idFront: '',
+            idBack: '',
+            selfie: ''
+          },
+          submittedAt: null,
+          reviewedAt: null,
+          reviewedBy: null,
+          rejectionReason: ''
+        },
+        badges: [],
+        gamification: {
+          totalPoints: 0,
+          level: 1,
+          experience: 0,
+          streak: {
+            current: 0,
+            longest: 0,
+            lastActivity: null
+          }
         }
-      }
-    });
+      });
+    }
 
     console.log('Saving user to database...');
     await user.save();
@@ -275,22 +289,24 @@ router.post('/register', async (req, res) => {
       }
     }
 
-    // Track user registration activity with metadata
-    try {
-      console.log('Tracking user registration activity...');
-      await ActivityService.trackUserRegistration(user._id, referrerId, {
-        platform: platform || 'web',
-        device: device || 'desktop',
-        browser: browser || req.headers['user-agent']?.split(' ')[0] || 'Unknown',
-        userAgent: userAgent || req.headers['user-agent'] || 'Unknown',
-        screenSize: screenSize || {},
-        coordinates: coordinates || {},
-        ipAddress: req.ip
-      });
-      console.log('User registration activity tracked successfully');
-    } catch (activityError) {
-      console.error('Failed to track user registration activity:', activityError);
-      // Don't fail the registration if activity tracking fails
+    // Track user registration activity with metadata (skip in minimal mode)
+    if (!SIGNUP_MINIMAL) {
+      try {
+        console.log('Tracking user registration activity...');
+        await ActivityService.trackUserRegistration(user._id, referrerId, {
+          platform: platform || 'web',
+          device: device || 'desktop',
+          browser: browser || req.headers['user-agent']?.split(' ')[0] || 'Unknown',
+          userAgent: userAgent || req.headers['user-agent'] || 'Unknown',
+          screenSize: screenSize || {},
+          coordinates: coordinates || {},
+          ipAddress: req.ip
+        });
+        console.log('User registration activity tracked successfully');
+      } catch (activityError) {
+        console.error('Failed to track user registration activity:', activityError);
+        // Don't fail the registration if activity tracking fails
+      }
     }
 
     // Emit real-time updates for referrer

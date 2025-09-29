@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Notification = require('../models/Notification');
 const auth = require('../middleware/auth');
+const webpush = require('web-push');
 
 // Get io instance from server.js
 let io;
@@ -11,6 +12,26 @@ const setIoInstance = (ioInstance) => {
 
 // Attach setIoInstance to router
 router.setIoInstance = setIoInstance;
+// VAPID configuration (public key exposure only). Set env vars on server.
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
+const VAPID_CONTACT = process.env.VAPID_CONTACT || 'mailto:admin@referralhub.com';
+
+if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+  try {
+    webpush.setVapidDetails(VAPID_CONTACT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+  } catch (e) {
+    console.error('Failed to set VAPID details:', e.message);
+  }
+}
+
+// Public endpoint to fetch VAPID public key
+router.get('/vapid-public-key', (req, res) => {
+  if (!VAPID_PUBLIC_KEY) {
+    return res.status(503).json({ message: 'VAPID key not configured' });
+  }
+  res.json({ publicKey: VAPID_PUBLIC_KEY });
+});
 
 // Get user's notifications
 router.get('/', auth, async (req, res) => {
