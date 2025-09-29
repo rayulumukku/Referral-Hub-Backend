@@ -16,9 +16,19 @@ const setIoInstance = (ioInstance) => {
 // Attach setIoInstance to router
 router.setIoInstance = setIoInstance;
 
+// Use a safe JWT secret fallback to avoid crashes if env var is missing
+const jwtSecret = process.env.JWT_SECRET || 'REF_HUB_DEV_FALLBACK_SECRET_CHANGE_ME';
+
 // Register
 router.post('/register', async (req, res) => {
   try {
+    // Ensure DB is connected before proceeding
+    const mongoose = require('mongoose');
+    if (mongoose.connection.readyState !== 1) {
+      console.error('Database not connected, readyState:', mongoose.connection.readyState);
+      return res.status(503).json({ message: 'Service temporarily unavailable. Please try again.' });
+    }
+
     console.log('Registration request received:', { email: req.body.email, username: req.body.username });
     
     const { email, username, password, type, platform, device, browser, userAgent, screenSize, coordinates, postId, referralId } = req.body;
@@ -27,6 +37,14 @@ router.post('/register', async (req, res) => {
     if (!email || !username || !password || !type) {
       console.error('Missing required fields:', { email: !!email, username: !!username, password: !!password, type: !!type });
       return res.status(400).json({ message: 'Missing required fields' });
+    }
+
+    // Normalize and validate type
+    const normalizedType = String(type).toLowerCase();
+    const allowedTypes = ['enterprise', 'company', 'individual'];
+    if (!allowedTypes.includes(normalizedType)) {
+      console.error('Invalid type value:', type);
+      return res.status(400).json({ message: `Invalid type. Allowed: ${allowedTypes.join(', ')}` });
     }
 
     // Check if user exists
@@ -43,7 +61,7 @@ router.post('/register', async (req, res) => {
 
     // Set initial credits based on type
     let credits = 5; // individual
-    if (type === 'enterprise' || type === 'company') {
+    if (normalizedType === 'enterprise' || normalizedType === 'company') {
       credits = 10;
     }
 
@@ -79,6 +97,8 @@ router.post('/register', async (req, res) => {
     let referralRecord = null;
     let parentReferral = null;
 
+    // Temporarily disable referral processing for debugging
+    /*
     if (referralId) {
       // Handle referral link with referralId
       const Referral = require('../models/Referral');
@@ -163,6 +183,7 @@ router.post('/register', async (req, res) => {
         // Skip referral processing for invalid ID
       }
     }
+    */
 
     console.log('Creating user with data:', { email, username: finalUsername, type });
 
@@ -171,10 +192,14 @@ router.post('/register', async (req, res) => {
       email,
       username: finalUsername,
       password: hashedPassword,
-      type,
+      type: normalizedType,
       credits,
       role,
       referrer: referrerId,
+      network: {
+        directReferrals: [],
+        level: 1
+      },
       profile: {
         name: '',
         company: '',
@@ -227,44 +252,26 @@ router.post('/register', async (req, res) => {
     await user.save();
     console.log('User saved successfully:', user._id);
 
-    // Store signup data
-    const signupData = {
-      coordinates: coordinates ? { lat: coordinates.latitude, lng: coordinates.longitude } : undefined,
-      location: coordinates ? {
-        city: coordinates.city,
-        state: coordinates.state,
-        country: coordinates.country,
-        timezone: coordinates.timezone,
-      } : undefined,
-      deviceInfo: {
-        browser: browser || req.headers['user-agent']?.split(' ')[0] || 'Unknown',
-        os: 'Unknown',
-        device: device || 'desktop',
-        userAgent: userAgent || req.headers['user-agent'] || 'Unknown',
-        screenSize: screenSize || {},
-      },
-      ipAddress: req.ip,
-      timestamp: new Date(),
-    };
-
-    await User.findByIdAndUpdate(user._id, {
-      coordinates: signupData.coordinates,
-      location: signupData.location,
-      deviceInfo: signupData.deviceInfo,
-      ipAddress: signupData.ipAddress,
-      signupData: signupData,
-    });
-
     // Update referral record with referee
     if (referralRecord) {
       referralRecord.referee = user._id;
-      await referralRecord.save();
+      try {
+        await referralRecord.save();
+      } catch (referralError) {
+        console.error('Error saving referral record:', referralError);
+        // Don't fail registration if referral save fails
+      }
 
       // Add to referrer's direct referrals
       if (referrerId) {
-        await User.findByIdAndUpdate(referrerId, {
-          $addToSet: { 'network.directReferrals': user._id }
-        });
+        try {
+          await User.findByIdAndUpdate(referrerId, {
+            $addToSet: { 'network.directReferrals': user._id }
+          });
+        } catch (updateError) {
+          console.error('Error updating referrer network:', updateError);
+          // Don't fail registration if this fails
+        }
       }
     }
 
@@ -288,31 +295,36 @@ router.post('/register', async (req, res) => {
 
     // Emit real-time updates for referrer
     if (referrerId && io) {
-      // Emit referral update
-      io.to(`user_${referrerId}`).emit('referral_update', {
-        type: 'new_referral',
-        referral: {
-          _id: referralRecord._id,
-          post: referralRecord.post,
-          platform: referralRecord.platform,
-          device: referralRecord.device,
-          location: referralRecord.location,
-          timestamp: referralRecord.createdAt
-        }
-      });
+      try {
+        // Emit referral update
+        io.to(`user_${referrerId}`).emit('referral_update', {
+          type: 'new_referral',
+          referral: {
+            _id: referralRecord._id,
+            post: referralRecord.post,
+            platform: referralRecord.platform,
+            device: referralRecord.device,
+            location: referralRecord.location,
+            timestamp: referralRecord.createdAt
+          }
+        });
 
-      // Emit user analytics update
-      io.to(`user_${referrerId}`).emit('user_analytics_update', {
-        type: 'new_referral_user',
-        userId: referrerId,
-        newUserId: user._id,
-        newUserType: user.type,
-        timestamp: new Date()
-      });
+        // Emit user analytics update
+        io.to(`user_${referrerId}`).emit('user_analytics_update', {
+          type: 'new_referral_user',
+          userId: referrerId,
+          newUserId: user._id,
+          newUserType: user.type,
+          timestamp: new Date()
+        });
+      } catch (socketError) {
+        console.error('Error emitting socket events:', socketError);
+        // Don't fail registration if socket fails
+      }
     }
 
     // Generate token
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+    const token = jwt.sign({ id: user._id }, jwtSecret, {
       expiresIn: '7d',
     });
 
@@ -328,7 +340,9 @@ router.post('/register', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Registration error:', error);
+    // Add correlation id for production diagnostics
+    const errorId = `reg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    console.error(`[${errorId}] Registration error:`, error);
     console.error('Error stack:', error.stack);
     console.error('Error name:', error.name);
     console.error('Error code:', error.code);
@@ -344,16 +358,31 @@ router.post('/register', async (req, res) => {
     }
 
     if (error.code === 11000) {
-      // Duplicate key error
-      const field = Object.keys(error.keyPattern)[0];
+      // Duplicate key error (handle cases where keyPattern is undefined)
+      let field = 'field';
+      try {
+        const keysFromPattern = error.keyPattern ? Object.keys(error.keyPattern) : [];
+        const keysFromValue = error.keyValue ? Object.keys(error.keyValue) : [];
+        field = (keysFromPattern[0] || keysFromValue[0] || 'field');
+      } catch (_) {
+        // fallback to parsing message
+        const match = /index: (\w+)_\d+ dup key/.exec(error.message || '');
+        if (match && match[1]) field = match[1];
+      }
       return res.status(400).json({
         message: `${field} already exists`
       });
     }
 
+    const exposeErrors = process.env.EXPOSE_ERRORS === 'true';
     res.status(500).json({
       message: 'Server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      errorId,
+      error: (process.env.NODE_ENV !== 'production' || exposeErrors) ? {
+        message: error.message,
+        name: error.name,
+        stack: error.stack
+      } : 'Internal server error'
     });
   }
 });
@@ -429,7 +458,7 @@ router.post('/login', async (req, res) => {
       ipAddress: req.ip
     });
 
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+    const token = jwt.sign({ id: user._id }, jwtSecret, {
       expiresIn: '7d',
     });
 
