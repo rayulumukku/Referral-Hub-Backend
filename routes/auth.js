@@ -20,6 +20,11 @@ router.setIoInstance = setIoInstance;
 const jwtSecret = process.env.JWT_SECRET || 'fallback_secret_change_me_in_production';
 const SIGNUP_MINIMAL = process.env.SIGNUP_MINIMAL ? process.env.SIGNUP_MINIMAL === 'true' : true;
 
+// Function to escape special regex characters
+function escapeRegex(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 // Validate critical environment variables
 if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'your_super_secret_jwt_key_here_change_in_production_123456789') {
   console.warn('WARNING: JWT_SECRET is not properly configured. Using fallback secret.');
@@ -67,10 +72,12 @@ router.post('/register', async (req, res) => {
     }
 
     // Check if user exists (case-insensitive)
+    const escapedEmail = escapeRegex(normalizedEmail);
+    const escapedUsername = escapeRegex(normalizedUsername);
     const existingUser = await User.findOne({
       $or: [
-        { email: { $regex: `^${normalizedEmail}$`, $options: 'i' } },
-        { username: { $regex: `^${normalizedUsername}$`, $options: 'i' } }
+        { email: { $regex: `^${escapedEmail}$`, $options: 'i' } },
+        { username: { $regex: `^${escapedUsername}$`, $options: 'i' } }
       ]
     });
     if (existingUser) {
@@ -340,7 +347,7 @@ router.post('/register', async (req, res) => {
     // Track user registration activity with metadata (skip in minimal mode)
     if (!SIGNUP_MINIMAL) {
       try {
-        console.log('Tracking user registration activity...');
+        console.log('DEBUG: About to track user registration activity for user:', user._id);
         await ActivityService.trackUserRegistration(user._id, referrerId, {
           platform: platform || 'web',
           device: device || 'desktop',
@@ -350,11 +357,15 @@ router.post('/register', async (req, res) => {
           coordinates: coordinates || {},
           ipAddress: req.ip
         });
-        console.log('User registration activity tracked successfully');
+        console.log('DEBUG: User registration activity tracked successfully');
       } catch (activityError) {
-        console.error('Failed to track user registration activity:', activityError);
+        console.error('DEBUG: Failed to track user registration activity:', activityError);
+        console.error('DEBUG: Activity error name:', activityError.name);
+        console.error('DEBUG: Activity error message:', activityError.message);
         // Don't fail the registration if activity tracking fails
       }
+    } else {
+      console.log('DEBUG: Skipping activity tracking due to SIGNUP_MINIMAL=true');
     }
 
     // Emit real-time updates for referrer
