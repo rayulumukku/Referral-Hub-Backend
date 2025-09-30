@@ -17,12 +17,26 @@ const setIoInstance = (ioInstance) => {
 router.setIoInstance = setIoInstance;
 
 // Use a safe JWT secret fallback to avoid crashes if env var is missing
-const jwtSecret = process.env.JWT_SECRET || 'REF_HUB_DEV_FALLBACK_SECRET_CHANGE_ME';
+const jwtSecret = process.env.JWT_SECRET || require('crypto').randomUUID();
 const SIGNUP_MINIMAL = process.env.SIGNUP_MINIMAL ? process.env.SIGNUP_MINIMAL === 'true' : true;
+
+// Validate critical environment variables
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'your_super_secret_jwt_key_here_change_in_production_123456789') {
+  console.warn('WARNING: JWT_SECRET is not properly configured. Using fallback secret.');
+}
+if (!process.env.MONGODB_URI) {
+  console.error('CRITICAL: MONGODB_URI is not set!');
+}
 
 // Register
 router.post('/register', async (req, res) => {
   try {
+    console.log('=== REGISTER ENDPOINT HIT ===');
+    console.log('Environment variables check:', {
+      JWT_SECRET: process.env.JWT_SECRET ? 'SET' : 'NOT SET',
+      MONGODB_URI: process.env.MONGODB_URI ? 'SET' : 'NOT SET',
+      SIGNUP_MINIMAL: SIGNUP_MINIMAL
+    });
     // Ensure DB is connected before proceeding
     const mongoose = require('mongoose');
     if (mongoose.connection.readyState !== 1) {
@@ -31,8 +45,12 @@ router.post('/register', async (req, res) => {
     }
 
     console.log('Registration request received:', { email: req.body.email, username: req.body.username });
-    
     const { email, username, password, type, platform, device, browser, userAgent, screenSize, coordinates, postId, referralId } = req.body;
+    console.log('Request body parsed:', { email: email ? 'SET' : 'NOT SET', username: username ? 'SET' : 'NOT SET', password: password ? 'SET' : 'NOT SET', type: type ? 'SET' : 'NOT SET' });
+
+    // Normalize email and username to lowercase for case-insensitive uniqueness
+    const normalizedEmail = email.toLowerCase().trim();
+    const normalizedUsername = username.trim().toLowerCase();
 
     // Validate required fields
     if (!email || !username || !password || !type) {
@@ -49,16 +67,17 @@ router.post('/register', async (req, res) => {
     }
 
     // Check if user exists
-    const existingUser = await User.findOne({ $or: [{ email }, { username }] });
+    const existingUser = await User.findOne({ $or: [{ email: normalizedEmail }, { username: normalizedUsername }] });
     if (existingUser) {
       console.log('User already exists:', existingUser.email);
-      const field = existingUser.email === email ? 'email' : 'username';
+      const field = existingUser.email === normalizedEmail ? 'email' : 'username';
       return res.status(400).json({ message: `${field.charAt(0).toUpperCase() + field.slice(1)} already exists` });
     }
 
     // Hash password
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
+    console.log('Password hashed successfully');
 
     // Set initial credits based on type
     let credits = 5; // individual
@@ -69,29 +88,24 @@ router.post('/register', async (req, res) => {
     // Set role - make admin if it's a specific admin email or first user
     let role = 'user';
     const adminEmails = ['admin@referralhub.com', 'superadmin@referralhub.com'];
-    if (adminEmails.includes(email.toLowerCase())) {
+    if (adminEmails.includes(normalizedEmail)) {
       role = 'admin';
     }
 
     // Username is required from frontend
-    if (!username || username.trim() === '') {
+    if (!normalizedUsername || normalizedUsername === '') {
       console.error('Username is empty or invalid');
       return res.status(400).json({ message: 'Username is required' });
     }
 
     // Validate username length
-    const finalUsername = username.trim();
-    if (finalUsername.length < 3 || finalUsername.length > 30) {
-      console.error('Username length invalid:', finalUsername.length);
+    if (normalizedUsername.length < 3 || normalizedUsername.length > 30) {
+      console.error('Username length invalid:', normalizedUsername.length);
       return res.status(400).json({ message: 'Username must be between 3 and 30 characters' });
     }
 
-    // Check if username is already taken
-    const existingUsername = await User.findOne({ username: finalUsername });
-    if (existingUsername) {
-      console.log('Username already taken:', finalUsername);
-      return res.status(400).json({ message: 'Username already taken' });
-    }
+    // Username already checked in existingUser, but double check
+    // The existingUser check already includes username
 
     // Handle referral if postId or referralId is provided
     let referrerId = null;
@@ -186,24 +200,26 @@ router.post('/register', async (req, res) => {
     }
     */
 
-    console.log('Creating user with data:', { email, username: finalUsername, type: normalizedType, minimal: SIGNUP_MINIMAL });
+    console.log('Creating user with data:', { email: normalizedEmail, username: normalizedUsername, type: normalizedType, minimal: SIGNUP_MINIMAL });
 
     let user;
     if (SIGNUP_MINIMAL) {
+      console.log('Using minimal signup');
       // Minimal safe user creation to avoid any optional schema issues
       user = new User({
-        email,
-        username: finalUsername,
+        email: normalizedEmail,
+        username: normalizedUsername,
         password: hashedPassword,
         type: normalizedType,
         credits,
         role
       });
     } else {
+      console.log('Using full signup');
       // Full profile creation
       user = new User({
-        email,
-        username: finalUsername,
+        email: normalizedEmail,
+        username: normalizedUsername,
         password: hashedPassword,
         type: normalizedType,
         credits,
@@ -263,8 +279,35 @@ router.post('/register', async (req, res) => {
     }
 
     console.log('Saving user to database...');
-    await user.save();
-    console.log('User saved successfully:', user._id);
+    console.log('User object before save:', { email: user.email, username: user.username, type: user.type });
+
+    try {
+      await user.save();
+      console.log('User saved successfully:', user._id);
+    } catch (saveError) {
+      console.error('User save error:', saveError);
+      console.error('Error name:', saveError.name);
+      console.error('Error code:', saveError.code);
+      console.error('Error message:', saveError.message);
+
+      // Handle specific database errors
+      if (saveError.name === 'ValidationError') {
+        const validationErrors = Object.values(saveError.errors).map(err => err.message);
+        return res.status(400).json({
+          message: 'Validation error during user creation',
+          errors: validationErrors
+        });
+      }
+
+      if (saveError.code === 11000) {
+        return res.status(400).json({
+          message: 'Duplicate key error - user may already exist'
+        });
+      }
+
+      // Re-throw for general 500 handling
+      throw saveError;
+    }
 
     // Update referral record with referee
     if (referralRecord) {
@@ -340,9 +383,20 @@ router.post('/register', async (req, res) => {
     }
 
     // Generate token
-    const token = jwt.sign({ id: user._id }, jwtSecret, {
-      expiresIn: '7d',
-    });
+    console.log('Generating JWT token...');
+    let token;
+    try {
+      token = jwt.sign({ id: user._id }, jwtSecret, {
+        expiresIn: '7d',
+      });
+      console.log('JWT token generated successfully');
+    } catch (jwtError) {
+      console.error('JWT token generation error:', jwtError);
+      return res.status(500).json({
+        message: 'Token generation failed',
+        error: 'JWT_SECRET may not be configured properly'
+      });
+    }
 
     console.log('Registration successful for user:', user.username);
     res.status(201).json({
@@ -407,8 +461,9 @@ router.post('/register', async (req, res) => {
 router.post('/login', async (req, res) => {
   try {
     const { email, password, platform, device, browser, userAgent, screenSize, coordinates } = req.body;
+    const normalizedEmail = email.toLowerCase().trim();
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: normalizedEmail });
     if (!user) {
       return res.status(400).json({ message: 'Invalid credentials' });
     }

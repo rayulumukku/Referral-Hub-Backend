@@ -27,9 +27,36 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
 
 // Public endpoint to fetch VAPID public key
 router.get('/vapid-public-key', (req, res) => {
+  console.log('VAPID_PUBLIC_KEY env var:', VAPID_PUBLIC_KEY ? 'SET' : 'NOT SET');
+  console.log('VAPID_PUBLIC_KEY value length:', VAPID_PUBLIC_KEY ? VAPID_PUBLIC_KEY.length : 0);
+  console.log('VAPID_PUBLIC_KEY starts with:', VAPID_PUBLIC_KEY ? VAPID_PUBLIC_KEY.substring(0, 10) + '...' : 'N/A');
   if (!VAPID_PUBLIC_KEY) {
+    console.error('VAPID key not configured in environment');
     return res.status(503).json({ message: 'VAPID key not configured' });
   }
+
+  // Validate VAPID key format (should be base64url)
+  try {
+    // Check if it's valid base64url (no + / _ - padding issues)
+    const base64Regex = /^[A-Za-z0-9\-_]+$/;
+    if (!base64Regex.test(VAPID_PUBLIC_KEY)) {
+      console.error('VAPID key contains invalid characters for base64url');
+      return res.status(503).json({ message: 'VAPID key format invalid' });
+    }
+
+    // Try to decode it to check if it's valid
+    const decoded = atob(VAPID_PUBLIC_KEY.replace(/-/g, '+').replace(/_/g, '/'));
+    if (decoded.length !== 65) { // VAPID public keys are 65 bytes
+      console.error('VAPID key decoded length is not 65 bytes, got:', decoded.length);
+      return res.status(503).json({ message: 'VAPID key length invalid' });
+    }
+
+    console.log('VAPID key validation passed');
+  } catch (error) {
+    console.error('VAPID key validation failed:', error.message);
+    return res.status(503).json({ message: 'VAPID key validation failed' });
+  }
+
   res.json({ publicKey: VAPID_PUBLIC_KEY });
 });
 

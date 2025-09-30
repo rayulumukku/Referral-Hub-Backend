@@ -162,13 +162,17 @@ router.post('/', auth, async (req, res) => {
 // Get trending posts
 router.get('/trending', async (req, res) => {
   try {
+    console.log('Trending posts endpoint hit, query:', req.query);
     const limit = parseInt(req.query.limit) || 10;
+    console.log('Parsed limit:', limit);
 
     // Trending algorithm: sort by combination of recent activity, reach, and conversions
     // Posts from last 7 days with high engagement
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    console.log('Seven days ago:', sevenDaysAgo);
 
+    console.log('Querying posts with status active and createdAt >=', sevenDaysAgo);
     const trendingPosts = await Post.find({
       status: 'active',
       createdAt: { $gte: sevenDaysAgo }
@@ -185,6 +189,8 @@ router.get('/trending', async (req, res) => {
     })
     .limit(limit);
 
+    console.log('Found trending posts count:', trendingPosts.length);
+
     // Add trending score for frontend
     const postsWithScore = trendingPosts.map(post => ({
       ...post.toObject(),
@@ -194,6 +200,7 @@ router.get('/trending', async (req, res) => {
     // Sort by trending score
     postsWithScore.sort((a, b) => b.trendingScore - a.trendingScore);
 
+    console.log('Returning trending posts with scores, total:', postsWithScore.length);
     res.json({
       posts: postsWithScore,
       total: postsWithScore.length
