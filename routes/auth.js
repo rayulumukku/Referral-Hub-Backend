@@ -17,7 +17,7 @@ const setIoInstance = (ioInstance) => {
 router.setIoInstance = setIoInstance;
 
 // Use a safe JWT secret fallback to avoid crashes if env var is missing
-const jwtSecret = process.env.JWT_SECRET || require('crypto').randomUUID();
+const jwtSecret = process.env.JWT_SECRET || 'fallback_secret_change_me_in_production';
 const SIGNUP_MINIMAL = process.env.SIGNUP_MINIMAL ? process.env.SIGNUP_MINIMAL === 'true' : true;
 
 // Validate critical environment variables
@@ -449,7 +449,8 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    const exposeErrors = process.env.EXPOSE_ERRORS === 'true';
+    // Allow forcing error details via query param for production debugging: /api/auth/register?debug=true
+    const exposeErrors = process.env.EXPOSE_ERRORS === 'true' || req.query.debug === 'true';
     res.status(500).json({
       message: 'Server error',
       errorId,
@@ -626,6 +627,41 @@ router.get('/debug-user/:userId', async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ message: 'Error', error: error.message });
+  }
+});
+
+/**
+ * Health/debug endpoint to verify backend environment quickly (safe to keep)
+ * GET /api/auth/health
+ */
+router.get('/health', async (req, res) => {
+  try {
+    const mongoose = require('mongoose');
+    const stateMap = {
+      0: 'disconnected',
+      1: 'connected',
+      2: 'connecting',
+      3: 'disconnecting',
+      99: 'uninitialized'
+    };
+    res.json({
+      ok: true,
+      mongo: {
+        readyState: mongoose.connection.readyState,
+        state: stateMap[mongoose.connection.readyState] || 'unknown',
+        host: mongoose.connection.host,
+        name: mongoose.connection.name
+      },
+      env: {
+        NODE_ENV: process.env.NODE_ENV || 'undefined',
+        JWT_SECRET_SET: !!process.env.JWT_SECRET,
+        SIGNUP_MINIMAL: SIGNUP_MINIMAL,
+        MONGODB_URI_SET: !!process.env.MONGODB_URI
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, message: e.message });
   }
 });
 
