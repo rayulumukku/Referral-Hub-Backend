@@ -53,9 +53,17 @@ router.post('/register', async (req, res) => {
     const { email, username, password, type, platform, device, browser, userAgent, screenSize, coordinates, postId, referralId } = req.body;
     console.log('Request body parsed:', { email: email ? 'SET' : 'NOT SET', username: username ? 'SET' : 'NOT SET', password: password ? 'SET' : 'NOT SET', type: type ? 'SET' : 'NOT SET' });
 
+    // Type validation
+    if (typeof email !== 'string' || typeof username !== 'string' || typeof password !== 'string' || typeof type !== 'string') {
+      console.error('Invalid data types:', { email: typeof email, username: typeof username, password: typeof password, type: typeof type });
+      return res.status(400).json({ message: 'Invalid data types' });
+    }
+
     // Normalize email and username to lowercase for case-insensitive uniqueness
+    console.log('About to normalize email and username');
     const normalizedEmail = email.toLowerCase().trim();
     const normalizedUsername = username.trim().toLowerCase();
+    console.log('Normalized:', { normalizedEmail, normalizedUsername });
 
     // Validate required fields
     if (!email || !username || !password || !type) {
@@ -71,13 +79,15 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ message: `Invalid type. Allowed: ${allowedTypes.join(', ')}` });
     }
 
-    // Check if user exists (case-insensitive using collation)
+    // Check if user exists (case-insensitive using escaped regex)
+    const escapedEmail = escapeRegex(normalizedEmail);
+    const escapedUsername = escapeRegex(normalizedUsername);
     const existingUser = await User.findOne({
       $or: [
-        { email: normalizedEmail },
-        { username: normalizedUsername }
+        { email: { $regex: `^${escapedEmail}$`, $options: 'i' } },
+        { username: { $regex: `^${escapedUsername}$`, $options: 'i' } }
       ]
-    }).collation({ locale: 'en', strength: 2 });
+    });
     if (existingUser) {
       console.log('User already exists:', existingUser.email);
       const field = existingUser.email.toLowerCase() === normalizedEmail ? 'email' : 'username';
@@ -400,8 +410,8 @@ router.post('/register', async (req, res) => {
     console.log('Generating JWT token...');
     let token;
     try {
-      token = jwt.sign({ id: user._id }, jwtSecret, {
-        expiresIn: '7d',
+      token = jwt.sign({ id: user._id.toString() }, jwtSecret, {
+        expiresIn: 604800,
       });
       console.log('JWT token generated successfully');
     } catch (jwtError) {
@@ -431,6 +441,9 @@ router.post('/register', async (req, res) => {
     console.error('Error name:', error.name);
     console.error('Error code:', error.code);
     console.error('Error message:', error.message);
+    console.error('Error constructor:', error.constructor.name);
+    console.error('Error errno:', error.errno);
+    console.error('Error syscall:', error.syscall);
 
     // Send more specific error messages
     if (error.name === 'ValidationError') {
@@ -475,16 +488,25 @@ router.post('/register', async (req, res) => {
 // Login
 router.post('/login', async (req, res) => {
   try {
+    console.log('=== LOGIN ENDPOINT HIT ===');
     const { email, password, platform, device, browser, userAgent, screenSize, coordinates } = req.body;
+    console.log('Login request for email:', email);
     const normalizedEmail = email.toLowerCase().trim();
+    console.log('Normalized email:', normalizedEmail);
 
+    console.log('Looking up user in database...');
     const user = await User.findOne({ email: normalizedEmail });
+    console.log('User found:', !!user);
     if (!user) {
+      console.log('No user found with email:', normalizedEmail);
       return res.status(400).json({ message: 'Invalid credentials' });
     }
 
+    console.log('Comparing passwords...');
     const isMatch = await bcrypt.compare(password, user.password);
+    console.log('Password match:', isMatch);
     if (!isMatch) {
+      console.log('Password does not match for user:', user.email);
       return res.status(400).json({ message: 'Invalid credentials' });
     }
 
