@@ -67,7 +67,12 @@ router.post('/register', async (req, res) => {
     }
 
     // Check if user exists (case-insensitive)
-    const existingUser = await User.findOne({ $or: [{ email: new RegExp(`^${normalizedEmail}$`, 'i') }, { username: new RegExp(`^${normalizedUsername}$`, 'i') }] });
+    const existingUser = await User.findOne({
+      $or: [
+        { email: { $regex: `^${normalizedEmail}$`, $options: 'i' } },
+        { username: { $regex: `^${normalizedUsername}$`, $options: 'i' } }
+      ]
+    });
     if (existingUser) {
       console.log('User already exists:', existingUser.email);
       const field = existingUser.email.toLowerCase() === normalizedEmail ? 'email' : 'username';
