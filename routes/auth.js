@@ -71,15 +71,13 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ message: `Invalid type. Allowed: ${allowedTypes.join(', ')}` });
     }
 
-    // Check if user exists (case-insensitive)
-    const escapedEmail = escapeRegex(normalizedEmail);
-    const escapedUsername = escapeRegex(normalizedUsername);
+    // Check if user exists (case-insensitive using collation)
     const existingUser = await User.findOne({
       $or: [
-        { email: { $regex: `^${escapedEmail}$`, $options: 'i' } },
-        { username: { $regex: `^${escapedUsername}$`, $options: 'i' } }
+        { email: normalizedEmail },
+        { username: normalizedUsername }
       ]
-    });
+    }).collation({ locale: 'en', strength: 2 });
     if (existingUser) {
       console.log('User already exists:', existingUser.email);
       const field = existingUser.email.toLowerCase() === normalizedEmail ? 'email' : 'username';
