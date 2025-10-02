@@ -178,21 +178,29 @@ router.get('/global', async (req, res) => {
 router.get('/post/:postId', auth, async (req, res) => {
   try {
     const { postId } = req.params;
+    console.log('Analytics /post: Request for postId:', postId, 'by user:', req.user.id, 'role:', req.user.role);
 
     // Validate postId
     if (!postId || postId.length !== 24) {
+      console.log('Analytics /post: Invalid post ID');
       return res.status(400).json({ message: 'Invalid post ID' });
     }
 
     // Check if user owns this post or is admin
     const post = await Post.findById(postId);
     if (!post) {
+      console.log('Analytics /post: Post not found');
       return res.status(404).json({ message: 'Post not found' });
     }
 
+    console.log('Analytics /post: Post creator:', post.creator.toString(), 'Requesting user:', req.user.id, 'User role:', req.user.role);
+
     if (post.creator.toString() !== req.user.id && req.user.role !== 'admin') {
+      console.log('Analytics /post: Access denied - user is not creator and not admin');
       return res.status(403).json({ message: 'Access denied' });
     }
+
+    console.log('Analytics /post: Access granted');
 
     const referrals = await Referral.find({ post: postId }).sort({ createdAt: 1 });
 
@@ -243,21 +251,29 @@ router.get('/post/:postId', auth, async (req, res) => {
 router.get('/my-post/:postId', auth, async (req, res) => {
   try {
     const { postId } = req.params;
+    console.log('Analytics /my-post: Request for postId:', postId, 'by user:', req.user.id, 'role:', req.user.role);
 
     // Validate postId
     if (!postId || postId.length !== 24) {
+      console.log('Analytics /my-post: Invalid post ID');
       return res.status(400).json({ message: 'Invalid post ID' });
     }
 
     // Check if user owns this post
     const post = await Post.findById(postId);
     if (!post) {
+      console.log('Analytics /my-post: Post not found');
       return res.status(404).json({ message: 'Post not found' });
     }
 
+    console.log('Analytics /my-post: Post creator:', post.creator.toString(), 'Requesting user:', req.user.id, 'User role:', req.user.role);
+
     if (post.creator.toString() !== req.user.id) {
+      console.log('Analytics /my-post: Access denied - user is not creator');
       return res.status(403).json({ message: 'Access denied' });
     }
+
+    console.log('Analytics /my-post: Access granted for creator');
 
     const referrals = await Referral.find({ post: postId })
       .populate('referrer', 'username email')
