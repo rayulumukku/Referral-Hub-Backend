@@ -37,6 +37,9 @@ async function connectWithRetry() {
   try {
     await mongoose.connect(MONGODB_URI);
     console.log('MongoDB connected');
+
+    // Seed demo users if they don't exist
+    await seedDemoUsersIfNeeded();
   } catch (err) {
     connectAttempts += 1;
     const delayMs = Math.min(30000, 1000 * Math.pow(2, Math.min(connectAttempts, 5)));
@@ -46,6 +49,69 @@ async function connectWithRetry() {
   }
 }
 connectWithRetry();
+
+async function seedDemoUsersIfNeeded() {
+  try {
+    const User = require('./models/User');
+    const bcrypt = require('bcryptjs');
+
+    // Always recreate demo users to ensure they have correct passwords
+    await User.deleteMany({ email: { $in: ['premium@demo.com', 'superpremium@demo.com'] } });
+    console.log('Deleted existing demo users (if any)');
+
+    console.log('Seeding demo users...');
+
+    if (!existingPremium) {
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash('demo123', salt);
+
+      const premiumUser = new User({
+        email: 'premium@demo.com',
+        username: 'premium_user',
+        password: hashedPassword,
+        type: 'enterprise',
+        status: 'premium',
+        profile: { name: 'Premium Demo User', company: 'Tech Innovators Inc.' },
+        credits: 2500,
+        gamification: { totalPoints: 2500, level: 15, experience: 12500 },
+        location: { city: 'Mumbai', state: 'Maharashtra', country: 'India', timezone: 'Asia/Kolkata' },
+        coordinates: { lat: 19.0760, lng: 72.8777 },
+        deviceInfo: { browser: 'Chrome', os: 'Windows', device: 'desktop', userAgent: 'Mozilla/5.0' },
+        network: { directReferrals: [], level: 1 }
+      });
+
+      await premiumUser.save();
+      console.log('Premium demo user created');
+    }
+
+    if (!existingSuperPremium) {
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash('demo123', salt);
+
+      const superPremiumUser = new User({
+        email: 'superpremium@demo.com',
+        username: 'super_premium',
+        password: hashedPassword,
+        type: 'enterprise',
+        status: 'super-premium',
+        profile: { name: 'Super Premium Demo', company: 'Global Solutions Ltd.' },
+        credits: 5000,
+        gamification: { totalPoints: 5000, level: 25, experience: 25000 },
+        location: { city: 'Mumbai', state: 'Maharashtra', country: 'India', timezone: 'Asia/Kolkata' },
+        coordinates: { lat: 19.0760, lng: 72.8777 },
+        deviceInfo: { browser: 'Chrome', os: 'Windows', device: 'desktop', userAgent: 'Mozilla/5.0' },
+        network: { directReferrals: [], level: 1 }
+      });
+
+      await superPremiumUser.save();
+      console.log('Super premium demo user created');
+    }
+
+    console.log('Demo users seeded successfully');
+  } catch (error) {
+    console.error('Error seeding demo users:', error);
+  }
+}
 
 // Socket IO
 io.on('connection', (socket) => {

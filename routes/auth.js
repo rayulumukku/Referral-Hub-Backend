@@ -489,6 +489,7 @@ router.post('/register', async (req, res) => {
 router.post('/login', async (req, res) => {
   try {
     console.log('=== LOGIN ENDPOINT HIT ===');
+    console.log('Request body:', req.body);
     const { email, password, platform, device, browser, userAgent, screenSize, coordinates } = req.body;
     console.log('Login request for email:', email);
     const normalizedEmail = email.toLowerCase().trim();
@@ -497,12 +498,17 @@ router.post('/login', async (req, res) => {
     console.log('Looking up user in database...');
     const user = await User.findOne({ email: normalizedEmail });
     console.log('User found:', !!user);
+    if (user) {
+      console.log('User details:', { id: user._id, email: user.email, username: user.username, type: user.type });
+    }
     if (!user) {
       console.log('No user found with email:', normalizedEmail);
       return res.status(400).json({ message: 'Invalid credentials' });
     }
 
     console.log('Comparing passwords...');
+    console.log('Provided password:', password);
+    console.log('Stored hash starts with:', user.password.substring(0, 10) + '...');
     const isMatch = await bcrypt.compare(password, user.password);
     console.log('Password match:', isMatch);
     if (!isMatch) {
@@ -658,6 +664,85 @@ router.get('/debug-user/:userId', async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ message: 'Error', error: error.message });
+  }
+});
+
+// Temporary route to check demo users
+router.get('/check-demo-users', async (req, res) => {
+  try {
+    const premium = await User.findOne({ email: 'premium@demo.com' });
+    const superPremium = await User.findOne({ email: 'superpremium@demo.com' });
+
+    res.json({
+      premium: premium ? { email: premium.email, username: premium.username, type: premium.type } : null,
+      superPremium: superPremium ? { email: superPremium.email, username: superPremium.username, type: superPremium.type } : null
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Temporary route to seed demo users
+router.post('/seed-demo-users', async (req, res) => {
+  try {
+    const bcrypt = require('bcryptjs');
+
+    // Delete existing demo users if they exist
+    await User.deleteMany({ email: { $in: ['premium@demo.com', 'superpremium@demo.com'] } });
+
+    const demoUsers = [];
+
+    // Create premium user
+    const salt1 = await bcrypt.genSalt(10);
+    const hashedPassword1 = await bcrypt.hash('demo123', salt1);
+
+    const premiumUser = new User({
+      email: 'premium@demo.com',
+      username: 'premium_user',
+      password: hashedPassword1,
+      type: 'enterprise',
+      status: 'premium',
+      profile: { name: 'Premium Demo User', company: 'Tech Innovators Inc.' },
+      credits: 2500,
+      gamification: { totalPoints: 2500, level: 15, experience: 12500 },
+      location: { city: 'Mumbai', state: 'Maharashtra', country: 'India', timezone: 'Asia/Kolkata' },
+      coordinates: { lat: 19.0760, lng: 72.8777 },
+      deviceInfo: { browser: 'Chrome', os: 'Windows', device: 'desktop', userAgent: 'Mozilla/5.0' },
+      network: { directReferrals: [], level: 1 }
+    });
+
+    await premiumUser.save();
+    demoUsers.push(premiumUser);
+
+    // Create super premium user
+    const salt2 = await bcrypt.genSalt(10);
+    const hashedPassword2 = await bcrypt.hash('demo123', salt2);
+
+    const superPremiumUser = new User({
+      email: 'superpremium@demo.com',
+      username: 'super_premium',
+      password: hashedPassword2,
+      type: 'enterprise',
+      status: 'super-premium',
+      profile: { name: 'Super Premium Demo', company: 'Global Solutions Ltd.' },
+      credits: 5000,
+      gamification: { totalPoints: 5000, level: 25, experience: 25000 },
+      location: { city: 'Mumbai', state: 'Maharashtra', country: 'India', timezone: 'Asia/Kolkata' },
+      coordinates: { lat: 19.0760, lng: 72.8777 },
+      deviceInfo: { browser: 'Chrome', os: 'Windows', device: 'desktop', userAgent: 'Mozilla/5.0' },
+      network: { directReferrals: [], level: 1 }
+    });
+
+    await superPremiumUser.save();
+    demoUsers.push(superPremiumUser);
+
+    res.json({
+      message: 'Demo users created successfully',
+      users: demoUsers.map(u => ({ email: u.email, username: u.username, type: u.type, status: u.status }))
+    });
+  } catch (error) {
+    console.error('Error seeding demo users:', error);
+    res.status(500).json({ message: 'Error creating demo users', error: error.message });
   }
 });
 
