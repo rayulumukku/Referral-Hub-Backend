@@ -268,8 +268,8 @@ router.get('/my-post/:postId', auth, async (req, res) => {
 
     console.log('Analytics /my-post: Post creator:', post.creator.toString(), 'Requesting user:', req.user.id, 'User role:', req.user.role);
 
-    if (post.creator.toString() !== req.user.id) {
-      console.log('Analytics /my-post: Access denied - user is not creator');
+    if (post.creator.toString() !== req.user.id && req.user.role !== 'admin') {
+      console.log('Analytics /my-post: Access denied - user is not creator and not admin');
       return res.status(403).json({ message: 'Access denied' });
     }
 
