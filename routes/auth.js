@@ -496,8 +496,54 @@ router.post('/login', async (req, res) => {
     console.log('Normalized email:', normalizedEmail);
 
     console.log('Looking up user in database...');
-    const user = await User.findOne({ email: normalizedEmail });
+    let user = await User.findOne({ email: normalizedEmail });
     console.log('User found:', !!user);
+
+    // Auto-create demo users if they don't exist
+    if (!user && (normalizedEmail === 'premium@demo.com' || normalizedEmail === 'superpremium@demo.com')) {
+      console.log('Demo user not found, creating...');
+      const bcrypt = require('bcryptjs');
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash('demo123', salt);
+
+      const isPremium = normalizedEmail === 'premium@demo.com';
+      user = new User({
+        email: normalizedEmail,
+        username: isPremium ? 'premium_user' : 'super_premium',
+        password: hashedPassword,
+        type: 'enterprise',
+        status: isPremium ? 'premium' : 'super-premium',
+        isVerified: true,
+        profile: {
+          name: isPremium ? 'Premium Demo User' : 'Super Premium Demo',
+          company: isPremium ? 'Tech Innovators Inc.' : 'Global Solutions Ltd.'
+        },
+        credits: isPremium ? 2500 : 5000,
+        gamification: {
+          totalPoints: isPremium ? 2500 : 5000,
+          level: isPremium ? 15 : 25,
+          experience: isPremium ? 12500 : 25000
+        },
+        location: {
+          city: 'Mumbai',
+          state: 'Maharashtra',
+          country: 'India',
+          timezone: 'Asia/Kolkata'
+        },
+        coordinates: { lat: 19.0760, lng: 72.8777 },
+        deviceInfo: {
+          browser: 'Chrome',
+          os: 'Windows',
+          device: 'desktop',
+          userAgent: 'Mozilla/5.0'
+        },
+        network: { directReferrals: [], level: 1 }
+      });
+
+      await user.save();
+      console.log('Demo user created successfully');
+    }
+
     if (user) {
       console.log('User details:', { id: user._id, email: user.email, username: user.username, type: user.type, status: user.status, role: user.role });
       if (user.status === 'premium' || user.status === 'super-premium') {
@@ -689,8 +735,22 @@ router.get('/check-demo-users', async (req, res) => {
     const superPremium = await User.findOne({ email: 'superpremium@demo.com' });
 
     res.json({
-      premium: premium ? { email: premium.email, username: premium.username, type: premium.type } : null,
-      superPremium: superPremium ? { email: superPremium.email, username: superPremium.username, type: superPremium.type } : null
+      premium: premium ? {
+        email: premium.email,
+        username: premium.username,
+        type: premium.type,
+        status: premium.status,
+        isVerified: premium.isVerified,
+        passwordHash: premium.password ? 'SET' : 'NOT SET'
+      } : null,
+      superPremium: superPremium ? {
+        email: superPremium.email,
+        username: superPremium.username,
+        type: superPremium.type,
+        status: superPremium.status,
+        isVerified: superPremium.isVerified,
+        passwordHash: superPremium.password ? 'SET' : 'NOT SET'
+      } : null
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
