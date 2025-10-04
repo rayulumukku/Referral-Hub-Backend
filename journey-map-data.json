@@ -1,0 +1,524 @@
+{
+  "68e12f84d92759bee158a295": [
+    {
+      "coords": [
+        19.076,
+        72.8777
+      ],
+      "person": "premium_user",
+      "name": "Mumbai",
+      "state": "Maharashtra",
+      "level": 0,
+      "time": "2025-10-04",
+      "device": "desktop",
+      "earnings": 0,
+      "clicks": 0
+    },
+    {
+      "coords": [
+        19.51162237021981,
+        72.68759961072637
+      ],
+      "person": "user15",
+      "name": "Ahmedabad",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-15",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 100
+    },
+    {
+      "coords": [
+        18.380933518620953,
+        71.96484517521098
+      ],
+      "person": "user1",
+      "name": "Chennai",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-17",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 16
+    },
+    {
+      "coords": [
+        18.530905649403966,
+        72.8303450770258
+      ],
+      "person": "user4",
+      "name": "Bangalore",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-17",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 60
+    },
+    {
+      "coords": [
+        19.98920110533286,
+        73.61647060196896
+      ],
+      "person": "user11",
+      "name": "Bangalore",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-18",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 20
+    },
+    {
+      "coords": [
+        19.74556798863393,
+        73.02949228016894
+      ],
+      "person": "user9",
+      "name": "Hyderabad",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-19",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 37
+    },
+    {
+      "coords": [
+        19.58190539851761,
+        72.35342337528469
+      ],
+      "person": "user7",
+      "name": "Pune",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-20",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 60
+    },
+    {
+      "coords": [
+        19.379807295646845,
+        72.25079604121989
+      ],
+      "person": "user3",
+      "name": "Hyderabad",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-25",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 26
+    },
+    {
+      "coords": [
+        19.733813684609522,
+        73.3483843604384
+      ],
+      "person": "user13",
+      "name": "Delhi",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-25",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 17
+    },
+    {
+      "coords": [
+        18.88636011335457,
+        73.68806556648455
+      ],
+      "person": "user5",
+      "name": "Mumbai",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-26",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 104
+    },
+    {
+      "coords": [
+        18.989244123064257,
+        72.21039435856196
+      ],
+      "person": "user10",
+      "name": "Mumbai",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-26",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 88
+    },
+    {
+      "coords": [
+        18.59001437283887,
+        73.71160573511372
+      ],
+      "person": "user2",
+      "name": "Pune",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-29",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 61
+    },
+    {
+      "coords": [
+        18.75282165995985,
+        73.52122832619207
+      ],
+      "person": "user6",
+      "name": "Ahmedabad",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-29",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 101
+    },
+    {
+      "coords": [
+        18.450644172265875,
+        72.01905429906104
+      ],
+      "person": "user14",
+      "name": "Kolkata",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-29",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 46
+    },
+    {
+      "coords": [
+        18.249036704666814,
+        73.11211383726203
+      ],
+      "person": "user12",
+      "name": "Pune",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-30",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 105
+    },
+    {
+      "coords": [
+        18.929483137677416,
+        72.48778844301168
+      ],
+      "person": "user8",
+      "name": "Bangalore",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-10-02",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 27
+    }
+  ],
+  "68e12f84d92759bee158a2a1": [
+    {
+      "coords": [
+        19.076,
+        72.8777
+      ],
+      "person": "super_premium",
+      "name": "Mumbai",
+      "state": "Maharashtra",
+      "level": 0,
+      "time": "2025-10-04",
+      "device": "desktop",
+      "earnings": 0,
+      "clicks": 0
+    },
+    {
+      "coords": [
+        18.213713343341404,
+        73.05657555313275
+      ],
+      "person": "user29",
+      "name": "Ahmedabad",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-14",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 76
+    },
+    {
+      "coords": [
+        19.244537991881657,
+        72.47359890650091
+      ],
+      "person": "user26",
+      "name": "Ahmedabad",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-16",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 75
+    },
+    {
+      "coords": [
+        18.60044223703982,
+        72.55478155225697
+      ],
+      "person": "user32",
+      "name": "Kolkata",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-16",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 84
+    },
+    {
+      "coords": [
+        18.27076454296147,
+        72.99481073196309
+      ],
+      "person": "user21",
+      "name": "Pune",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-18",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 83
+    },
+    {
+      "coords": [
+        18.870996503952945,
+        72.02380493653324
+      ],
+      "person": "user22",
+      "name": "Ahmedabad",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-18",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 63
+    },
+    {
+      "coords": [
+        19.683421036749905,
+        73.77674820793821
+      ],
+      "person": "user23",
+      "name": "Bangalore",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-19",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 74
+    },
+    {
+      "coords": [
+        19.26432273722764,
+        72.12097150240307
+      ],
+      "person": "user24",
+      "name": "Delhi",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-20",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 64
+    },
+    {
+      "coords": [
+        19.557434728332932,
+        72.08988957790926
+      ],
+      "person": "user25",
+      "name": "Delhi",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-20",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 108
+    },
+    {
+      "coords": [
+        18.517171242448363,
+        72.18600065363349
+      ],
+      "person": "user18",
+      "name": "Hyderabad",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-24",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 84
+    },
+    {
+      "coords": [
+        19.843451914657585,
+        73.1783049244721
+      ],
+      "person": "user33",
+      "name": "Delhi",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-24",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 52
+    },
+    {
+      "coords": [
+        19.41561429898909,
+        72.48970003122231
+      ],
+      "person": "user16",
+      "name": "Kolkata",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-26",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 103
+    },
+    {
+      "coords": [
+        18.111181630502674,
+        71.95825052097176
+      ],
+      "person": "user28",
+      "name": "Bangalore",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-26",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 80
+    },
+    {
+      "coords": [
+        18.60419260477831,
+        73.83492190999155
+      ],
+      "person": "user20",
+      "name": "Mumbai",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-27",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 47
+    },
+    {
+      "coords": [
+        19.829630214863528,
+        73.65205987294232
+      ],
+      "person": "user30",
+      "name": "Hyderabad",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-27",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 22
+    },
+    {
+      "coords": [
+        18.71497495441411,
+        73.67683914934771
+      ],
+      "person": "user19",
+      "name": "Delhi",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-28",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 43
+    },
+    {
+      "coords": [
+        18.614579268255234,
+        73.35148935161752
+      ],
+      "person": "user34",
+      "name": "Chennai",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-28",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 21
+    },
+    {
+      "coords": [
+        19.24223286793701,
+        72.97626399946942
+      ],
+      "person": "user35",
+      "name": "Chennai",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-28",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 27
+    },
+    {
+      "coords": [
+        19.45708687163158,
+        72.258862764718
+      ],
+      "person": "user31",
+      "name": "Mumbai",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-09-29",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 49
+    },
+    {
+      "coords": [
+        20.00403328864422,
+        73.47552579777428
+      ],
+      "person": "user17",
+      "name": "Mumbai",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-10-02",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 95
+    },
+    {
+      "coords": [
+        18.47360472672072,
+        72.71182727906147
+      ],
+      "person": "user27",
+      "name": "Delhi",
+      "state": "Maharashtra",
+      "level": 1,
+      "time": "2025-10-02",
+      "device": "desktop",
+      "earnings": 50,
+      "clicks": 40
+    }
+  ]
+}

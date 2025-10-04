@@ -61,51 +61,51 @@ async function seedDemoUsersIfNeeded() {
 
     console.log('Seeding demo users...');
 
-    if (!existingPremium) {
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash('demo123', salt);
+    // Create premium user
+    const salt1 = await bcrypt.genSalt(10);
+    const hashedPassword1 = await bcrypt.hash('demo123', salt1);
 
-      const premiumUser = new User({
-        email: 'premium@demo.com',
-        username: 'premium_user',
-        password: hashedPassword,
-        type: 'enterprise',
-        status: 'premium',
-        profile: { name: 'Premium Demo User', company: 'Tech Innovators Inc.' },
-        credits: 2500,
-        gamification: { totalPoints: 2500, level: 15, experience: 12500 },
-        location: { city: 'Mumbai', state: 'Maharashtra', country: 'India', timezone: 'Asia/Kolkata' },
-        coordinates: { lat: 19.0760, lng: 72.8777 },
-        deviceInfo: { browser: 'Chrome', os: 'Windows', device: 'desktop', userAgent: 'Mozilla/5.0' },
-        network: { directReferrals: [], level: 1 }
-      });
+    const premiumUser = new User({
+      email: 'premium@demo.com',
+      username: 'premium_user',
+      password: hashedPassword1,
+      type: 'enterprise',
+      status: 'premium',
+      isVerified: true,
+      profile: { name: 'Premium Demo User', company: 'Tech Innovators Inc.' },
+      credits: 2500,
+      gamification: { totalPoints: 2500, level: 15, experience: 12500 },
+      location: { city: 'Mumbai', state: 'Maharashtra', country: 'India', timezone: 'Asia/Kolkata' },
+      coordinates: { lat: 19.0760, lng: 72.8777 },
+      deviceInfo: { browser: 'Chrome', os: 'Windows', device: 'desktop', userAgent: 'Mozilla/5.0' },
+      network: { directReferrals: [], level: 1 }
+    });
 
-      await premiumUser.save();
-      console.log('Premium demo user created');
-    }
+    await premiumUser.save();
+    console.log('Premium demo user created');
 
-    if (!existingSuperPremium) {
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash('demo123', salt);
+    // Create super premium user
+    const salt2 = await bcrypt.genSalt(10);
+    const hashedPassword2 = await bcrypt.hash('demo123', salt2);
 
-      const superPremiumUser = new User({
-        email: 'superpremium@demo.com',
-        username: 'super_premium',
-        password: hashedPassword,
-        type: 'enterprise',
-        status: 'super-premium',
-        profile: { name: 'Super Premium Demo', company: 'Global Solutions Ltd.' },
-        credits: 5000,
-        gamification: { totalPoints: 5000, level: 25, experience: 25000 },
-        location: { city: 'Mumbai', state: 'Maharashtra', country: 'India', timezone: 'Asia/Kolkata' },
-        coordinates: { lat: 19.0760, lng: 72.8777 },
-        deviceInfo: { browser: 'Chrome', os: 'Windows', device: 'desktop', userAgent: 'Mozilla/5.0' },
-        network: { directReferrals: [], level: 1 }
-      });
+    const superPremiumUser = new User({
+      email: 'superpremium@demo.com',
+      username: 'super_premium',
+      password: hashedPassword2,
+      type: 'enterprise',
+      status: 'super-premium',
+      isVerified: true,
+      profile: { name: 'Super Premium Demo', company: 'Global Solutions Ltd.' },
+      credits: 5000,
+      gamification: { totalPoints: 5000, level: 25, experience: 25000 },
+      location: { city: 'Mumbai', state: 'Maharashtra', country: 'India', timezone: 'Asia/Kolkata' },
+      coordinates: { lat: 19.0760, lng: 72.8777 },
+      deviceInfo: { browser: 'Chrome', os: 'Windows', device: 'desktop', userAgent: 'Mozilla/5.0' },
+      network: { directReferrals: [], level: 1 }
+    });
 
-      await superPremiumUser.save();
-      console.log('Super premium demo user created');
-    }
+    await superPremiumUser.save();
+    console.log('Super premium demo user created');
 
     console.log('Demo users seeded successfully');
   } catch (error) {
