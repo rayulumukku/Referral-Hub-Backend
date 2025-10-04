@@ -499,65 +499,59 @@ router.post('/login', async (req, res) => {
     let user = await User.findOne({ email: normalizedEmail });
     console.log('User found:', !!user);
 
-    // Auto-create demo users if they don't exist or recreate if password doesn't match
+    // Special handling for demo users
     if (normalizedEmail === 'premium@demo.com' || normalizedEmail === 'superpremium@demo.com') {
-      if (!user) {
-        console.log('Demo user not found, creating...');
-      } else {
-        // Check if password matches
-        const isPasswordCorrect = await bcrypt.compare('demo123', user.password);
-        if (!isPasswordCorrect) {
-          console.log('Demo user exists but password incorrect, recreating...');
-          await User.deleteMany({ email: normalizedEmail });
-          user = null;
-        }
-      }
+      console.log('=== DEMO USER LOGIN ATTEMPT ===');
+      console.log('Email:', normalizedEmail);
+      console.log('Password provided:', password);
 
-      if (!user) {
-        try {
-          const salt = await bcrypt.genSalt(10);
-          const hashedPassword = await bcrypt.hash('demo123', salt);
+      // Always recreate demo users to ensure they work
+      try {
+        console.log('Recreating demo user...');
+        await User.deleteMany({ email: normalizedEmail });
 
-          const isPremium = normalizedEmail === 'premium@demo.com';
-          user = new User({
-            email: normalizedEmail,
-            username: isPremium ? 'premium_user' : 'super_premium',
-            password: hashedPassword,
-            type: 'enterprise',
-            status: isPremium ? 'premium' : 'super-premium',
-            isVerified: true,
-            profile: {
-              name: isPremium ? 'Premium Demo User' : 'Super Premium Demo',
-              company: isPremium ? 'Tech Innovators Inc.' : 'Global Solutions Ltd.'
-            },
-            credits: isPremium ? 2500 : 5000,
-            gamification: {
-              totalPoints: isPremium ? 2500 : 5000,
-              level: isPremium ? 15 : 25,
-              experience: isPremium ? 12500 : 25000
-            },
-            location: {
-              city: 'Mumbai',
-              state: 'Maharashtra',
-              country: 'India',
-              timezone: 'Asia/Kolkata'
-            },
-            coordinates: { lat: 19.0760, lng: 72.8777 },
-            deviceInfo: {
-              browser: 'Chrome',
-              os: 'Windows',
-              device: 'desktop',
-              userAgent: 'Mozilla/5.0'
-            },
-            network: { directReferrals: [], level: 1 }
-          });
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash('demo123', salt);
 
-          await user.save();
-          console.log('Demo user created successfully');
-        } catch (createError) {
-          console.error('Failed to create demo user:', createError);
-          return res.status(500).json({ message: 'Server error creating demo user' });
-        }
+        const isPremium = normalizedEmail === 'premium@demo.com';
+        const newUser = new User({
+          email: normalizedEmail,
+          username: isPremium ? 'premium_user' : 'super_premium',
+          password: hashedPassword,
+          type: 'enterprise',
+          status: isPremium ? 'premium' : 'super-premium',
+          isVerified: true,
+          profile: {
+            name: isPremium ? 'Premium Demo User' : 'Super Premium Demo',
+            company: isPremium ? 'Tech Innovators Inc.' : 'Global Solutions Ltd.'
+          },
+          credits: isPremium ? 2500 : 5000,
+          gamification: {
+            totalPoints: isPremium ? 2500 : 5000,
+            level: isPremium ? 15 : 25,
+            experience: isPremium ? 12500 : 25000
+          },
+          location: {
+            city: 'Mumbai',
+            state: 'Maharashtra',
+            country: 'India',
+            timezone: 'Asia/Kolkata'
+          },
+          coordinates: { lat: 19.0760, lng: 72.8777 },
+          deviceInfo: {
+            browser: 'Chrome',
+            os: 'Windows',
+            device: 'desktop',
+            userAgent: 'Mozilla/5.0'
+          },
+          network: { directReferrals: [], level: 1 }
+        });
+
+        user = await newUser.save();
+        console.log('Demo user recreated successfully');
+      } catch (createError) {
+        console.error('Failed to create demo user:', createError);
+        return res.status(500).json({ message: 'Server error creating demo user' });
       }
     }
 
@@ -768,6 +762,30 @@ router.get('/check-demo-users', async (req, res) => {
         isVerified: superPremium.isVerified,
         passwordHash: superPremium.password ? 'SET' : 'NOT SET'
       } : null
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Test login endpoint
+router.post('/test-login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    console.log('Test login for:', email);
+
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    if (!user) {
+      return res.json({ found: false, message: 'User not found' });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    res.json({
+      found: true,
+      email: user.email,
+      passwordMatch: isMatch,
+      status: user.status,
+      isVerified: user.isVerified
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
