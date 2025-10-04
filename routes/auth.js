@@ -499,12 +499,19 @@ router.post('/login', async (req, res) => {
     const user = await User.findOne({ email: normalizedEmail });
     console.log('User found:', !!user);
     if (user) {
-      console.log('User details:', { id: user._id, email: user.email, username: user.username, type: user.type });
+      console.log('User details:', { id: user._id, email: user.email, username: user.username, type: user.type, status: user.status, role: user.role });
+      if (user.status === 'premium' || user.status === 'super-premium') {
+        console.log('=== PREMIUM/SUPER-PREMIUM USER LOGIN ATTEMPT ===');
+        console.log('User status:', user.status);
+        console.log('User verified:', user.isVerified);
+        console.log('User kyc status:', user.kyc?.status);
+      }
     }
     if (!user) {
       console.log('No user found with email:', normalizedEmail);
       return res.status(400).json({ message: 'Invalid credentials' });
     }
+
 
     console.log('Comparing passwords...');
     console.log('Provided password:', password);
@@ -513,6 +520,9 @@ router.post('/login', async (req, res) => {
     console.log('Password match:', isMatch);
     if (!isMatch) {
       console.log('Password does not match for user:', user.email);
+      if (user.status === 'premium' || user.status === 'super-premium') {
+        console.log('=== PREMIUM/SUPER-PREMIUM USER PASSWORD MISMATCH ===');
+      }
       return res.status(400).json({ message: 'Invalid credentials' });
     }
 
@@ -572,9 +582,14 @@ router.post('/login', async (req, res) => {
       ipAddress: req.ip
     });
 
-    const token = jwt.sign({ id: user._id }, jwtSecret, {
+    const token = jwt.sign({ id: user._id.toString() }, jwtSecret, {
       expiresIn: '7d',
     });
+
+    if (user.status === 'premium' || user.status === 'super-premium') {
+      console.log('=== PREMIUM/SUPER-PREMIUM USER LOGIN SUCCESSFUL ===');
+      console.log('Generated token for user:', user.email, 'ID:', user._id, 'ID type:', typeof user._id);
+    }
 
     res.json({
       token,
@@ -702,6 +717,7 @@ router.post('/seed-demo-users', async (req, res) => {
       password: hashedPassword1,
       type: 'enterprise',
       status: 'premium',
+      isVerified: true,
       profile: { name: 'Premium Demo User', company: 'Tech Innovators Inc.' },
       credits: 2500,
       gamification: { totalPoints: 2500, level: 15, experience: 12500 },
@@ -724,6 +740,7 @@ router.post('/seed-demo-users', async (req, res) => {
       password: hashedPassword2,
       type: 'enterprise',
       status: 'super-premium',
+      isVerified: true,
       profile: { name: 'Super Premium Demo', company: 'Global Solutions Ltd.' },
       credits: 5000,
       gamification: { totalPoints: 5000, level: 25, experience: 25000 },

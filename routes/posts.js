@@ -6,6 +6,7 @@ const ActivityService = require('../services/activityService');
 const CommissionService = require('../services/commissionService');
 const GamificationService = require('../services/gamificationService');
 const QRCode = require('qrcode');
+const sharp = require('sharp');
 
 const router = express.Router();
 
@@ -13,6 +14,32 @@ const router = express.Router();
 let io;
 const setIoInstance = (ioInstance) => {
   io = ioInstance;
+};
+
+// Function to convert image data URL to JPEG format
+const convertToJpeg = async (dataUrl) => {
+  try {
+    // Check if it's a data URL
+    if (!dataUrl.startsWith('data:image/')) {
+      return dataUrl; // Return as is if not a data URL
+    }
+
+    // Extract base64 data
+    const base64Data = dataUrl.split(',')[1];
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    // Convert to JPEG using sharp
+    const jpegBuffer = await sharp(buffer)
+      .jpeg({ quality: 85 }) // Good quality JPEG
+      .toBuffer();
+
+    // Convert back to data URL
+    const jpegDataUrl = `data:image/jpeg;base64,${jpegBuffer.toString('base64')}`;
+    return jpegDataUrl;
+  } catch (error) {
+    console.error('Error converting image to JPEG:', error);
+    return dataUrl; // Return original if conversion fails
+  }
 };
 
 // Create post
@@ -53,6 +80,11 @@ router.post('/', auth, async (req, res) => {
       return res.status(400).json({ message: 'At least 1 photo is required to create a post.' });
     }
 
+    // Convert all photos to JPEG format for universal compatibility
+    console.log('Converting photos to JPEG format...');
+    const convertedPhotos = await Promise.all(photos.map(convertToJpeg));
+    console.log('Photo conversion completed');
+
     // Deduct 1 credit for post creation
     user.credits -= 1;
     await user.save();
@@ -84,7 +116,7 @@ router.post('/', auth, async (req, res) => {
       category,
       originalPrice: originalPrice || 0,
       price: price || 0,
-      photos: photos.slice(0, 4), // Limit to 4 photos
+      photos: convertedPhotos.slice(0, 4), // Limit to 4 photos
       pointsPool: distribution.pointsPool,
       platformFee: distribution.platformFee,
       distributablePoints: distribution.distributableAmount,
@@ -581,7 +613,9 @@ router.put('/:id', auth, async (req, res) => {
     post.originalPrice = originalPrice !== undefined ? originalPrice : post.originalPrice;
     post.price = price || post.price;
     if (photos) {
-      post.photos = photos.slice(0, 4); // Limit to 4 photos
+      // Convert photos to JPEG format for universal compatibility
+      const convertedPhotos = await Promise.all(photos.map(convertToJpeg));
+      post.photos = convertedPhotos.slice(0, 4); // Limit to 4 photos
     }
 
     await post.save();
