@@ -499,49 +499,66 @@ router.post('/login', async (req, res) => {
     let user = await User.findOne({ email: normalizedEmail });
     console.log('User found:', !!user);
 
-    // Auto-create demo users if they don't exist
-    if (!user && (normalizedEmail === 'premium@demo.com' || normalizedEmail === 'superpremium@demo.com')) {
-      console.log('Demo user not found, creating...');
-      const bcrypt = require('bcryptjs');
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash('demo123', salt);
+    // Auto-create demo users if they don't exist or recreate if password doesn't match
+    if (normalizedEmail === 'premium@demo.com' || normalizedEmail === 'superpremium@demo.com') {
+      if (!user) {
+        console.log('Demo user not found, creating...');
+      } else {
+        // Check if password matches
+        const isPasswordCorrect = await bcrypt.compare('demo123', user.password);
+        if (!isPasswordCorrect) {
+          console.log('Demo user exists but password incorrect, recreating...');
+          await User.deleteMany({ email: normalizedEmail });
+          user = null;
+        }
+      }
 
-      const isPremium = normalizedEmail === 'premium@demo.com';
-      user = new User({
-        email: normalizedEmail,
-        username: isPremium ? 'premium_user' : 'super_premium',
-        password: hashedPassword,
-        type: 'enterprise',
-        status: isPremium ? 'premium' : 'super-premium',
-        isVerified: true,
-        profile: {
-          name: isPremium ? 'Premium Demo User' : 'Super Premium Demo',
-          company: isPremium ? 'Tech Innovators Inc.' : 'Global Solutions Ltd.'
-        },
-        credits: isPremium ? 2500 : 5000,
-        gamification: {
-          totalPoints: isPremium ? 2500 : 5000,
-          level: isPremium ? 15 : 25,
-          experience: isPremium ? 12500 : 25000
-        },
-        location: {
-          city: 'Mumbai',
-          state: 'Maharashtra',
-          country: 'India',
-          timezone: 'Asia/Kolkata'
-        },
-        coordinates: { lat: 19.0760, lng: 72.8777 },
-        deviceInfo: {
-          browser: 'Chrome',
-          os: 'Windows',
-          device: 'desktop',
-          userAgent: 'Mozilla/5.0'
-        },
-        network: { directReferrals: [], level: 1 }
-      });
+      if (!user) {
+        try {
+          const salt = await bcrypt.genSalt(10);
+          const hashedPassword = await bcrypt.hash('demo123', salt);
 
-      await user.save();
-      console.log('Demo user created successfully');
+          const isPremium = normalizedEmail === 'premium@demo.com';
+          user = new User({
+            email: normalizedEmail,
+            username: isPremium ? 'premium_user' : 'super_premium',
+            password: hashedPassword,
+            type: 'enterprise',
+            status: isPremium ? 'premium' : 'super-premium',
+            isVerified: true,
+            profile: {
+              name: isPremium ? 'Premium Demo User' : 'Super Premium Demo',
+              company: isPremium ? 'Tech Innovators Inc.' : 'Global Solutions Ltd.'
+            },
+            credits: isPremium ? 2500 : 5000,
+            gamification: {
+              totalPoints: isPremium ? 2500 : 5000,
+              level: isPremium ? 15 : 25,
+              experience: isPremium ? 12500 : 25000
+            },
+            location: {
+              city: 'Mumbai',
+              state: 'Maharashtra',
+              country: 'India',
+              timezone: 'Asia/Kolkata'
+            },
+            coordinates: { lat: 19.0760, lng: 72.8777 },
+            deviceInfo: {
+              browser: 'Chrome',
+              os: 'Windows',
+              device: 'desktop',
+              userAgent: 'Mozilla/5.0'
+            },
+            network: { directReferrals: [], level: 1 }
+          });
+
+          await user.save();
+          console.log('Demo user created successfully');
+        } catch (createError) {
+          console.error('Failed to create demo user:', createError);
+          return res.status(500).json({ message: 'Server error creating demo user' });
+        }
+      }
     }
 
     if (user) {
