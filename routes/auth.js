@@ -572,10 +572,10 @@ router.post('/login', async (req, res) => {
 
     // Special handling for demo users - skip password check and ensure they work
     let skipPasswordCheck = false;
-    if ((user.status === 'premium' || user.status === 'super-premium') &&
-        (normalizedEmail === 'premium@demo.com' || normalizedEmail === 'superpremium@demo.com') &&
+    if ((normalizedEmail === 'premium@demo.com' || normalizedEmail === 'superpremium@demo.com') &&
         password === 'demo123') {
       console.log('=== DEMO USER - SKIPPING PASSWORD CHECK ===');
+      console.log('Email:', normalizedEmail, 'Status:', user?.status);
       skipPasswordCheck = true;
     }
 
