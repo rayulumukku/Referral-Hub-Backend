@@ -568,7 +568,10 @@ router.post('/login', async (req, res) => {
     }
     if (!user) {
       console.log('No user found with email:', normalizedEmail);
-      return res.status(400).json({ message: 'Invalid credentials' });
+      const exposeErrors = process.env.EXPOSE_ERRORS === 'true' || req.query.debug === 'true';
+      return res.status(400).json({
+        message: exposeErrors ? 'User not found' : 'Invalid credentials'
+      });
     }
 
 
@@ -597,7 +600,10 @@ router.post('/login', async (req, res) => {
           console.log('=== PREMIUM USER PASSWORD FAILURE ===');
           console.log('Premium user login failed due to password mismatch');
         }
-        return res.status(400).json({ message: 'Invalid credentials' });
+        const exposeErrors = process.env.EXPOSE_ERRORS === 'true' || req.query.debug === 'true';
+        return res.status(400).json({
+          message: exposeErrors ? 'Password incorrect' : 'Invalid credentials'
+        });
       }
     } else {
       console.log('Password check skipped for demo user');
