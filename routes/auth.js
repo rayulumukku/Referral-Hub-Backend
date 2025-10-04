@@ -562,6 +562,8 @@ router.post('/login', async (req, res) => {
         console.log('User status:', user.status);
         console.log('User verified:', user.isVerified);
         console.log('User kyc status:', user.kyc?.status);
+        console.log('User credits:', user.credits);
+        console.log('User gamification level:', user.gamification?.level);
       }
     }
     if (!user) {
@@ -585,8 +587,16 @@ router.post('/login', async (req, res) => {
       console.log('Stored hash starts with:', user.password.substring(0, 10) + '...');
       const isMatch = await bcrypt.compare(password, user.password);
       console.log('Password match:', isMatch);
+      if (user.status === 'premium' || user.status === 'super-premium') {
+        console.log('=== PREMIUM USER PASSWORD CHECK ===');
+        console.log('Password match result for premium user:', isMatch);
+      }
       if (!isMatch) {
         console.log('Password does not match for user:', user.email);
+        if (user.status === 'premium' || user.status === 'super-premium') {
+          console.log('=== PREMIUM USER PASSWORD FAILURE ===');
+          console.log('Premium user login failed due to password mismatch');
+        }
         return res.status(400).json({ message: 'Invalid credentials' });
       }
     } else {
@@ -656,6 +666,8 @@ router.post('/login', async (req, res) => {
     if (user.status === 'premium' || user.status === 'super-premium') {
       console.log('=== PREMIUM/SUPER-PREMIUM USER LOGIN SUCCESSFUL ===');
       console.log('Generated token for user:', user.email, 'ID:', user._id, 'ID type:', typeof user._id);
+      console.log('Token length:', token.length);
+      console.log('JWT_SECRET used for signing:', jwtSecret.substring(0, 10) + '...');
     }
 
     res.json({
