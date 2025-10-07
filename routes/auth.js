@@ -68,7 +68,46 @@ router.post('/register', async (req, res) => {
     // Validate required fields
     if (!email || !username || !password || !type) {
       console.error('Missing required fields:', { email: !!email, username: !!username, password: !!password, type: !!type });
-      return res.status(400).json({ message: 'Missing required fields' });
+      return res.status(400).json({ 
+        message: 'Missing required fields',
+        errors: {
+          email: !email ? 'Email is required' : null,
+          username: !username ? 'Username is required' : null,
+          password: !password ? 'Password is required' : null,
+          type: !type ? 'Type is required' : null
+        }
+      });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ 
+        message: 'Invalid email format',
+        errors: {
+          email: 'Please provide a valid email address'
+        }
+      });
+    }
+
+    // Validate password strength
+    if (password.length < 6) {
+      return res.status(400).json({ 
+        message: 'Password too weak',
+        errors: {
+          password: 'Password must be at least 6 characters long'
+        }
+      });
+    }
+
+    // Validate username
+    if (username.length < 3) {
+      return res.status(400).json({ 
+        message: 'Username too short',
+        errors: {
+          username: 'Username must be at least 3 characters long'
+        }
+      });
     }
 
     // Normalize and validate type
@@ -490,7 +529,31 @@ router.post('/login', async (req, res) => {
   try {
     console.log('=== LOGIN ENDPOINT HIT ===');
     console.log('Request body:', req.body);
+    
+    // Validate required fields
     const { email, password, platform, device, browser, userAgent, screenSize, coordinates } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ 
+        message: 'Email and password are required',
+        errors: {
+          email: !email ? 'Email is required' : null,
+          password: !password ? 'Password is required' : null
+        }
+      });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ 
+        message: 'Invalid email format',
+        errors: {
+          email: 'Please provide a valid email address'
+        }
+      });
+    }
+
     console.log('Login request for email:', email);
     const normalizedEmail = email.toLowerCase().trim();
     console.log('Normalized email:', normalizedEmail);
@@ -521,34 +584,16 @@ router.post('/login', async (req, res) => {
           type: 'enterprise',
           status: isPremium ? 'premium' : 'super-premium',
           isVerified: true,
-          profile: {
-            name: isPremium ? 'Premium Demo User' : 'Super Premium Demo',
-            company: isPremium ? 'Tech Innovators Inc.' : 'Global Solutions Ltd.'
-          },
-          credits: isPremium ? 2500 : 5000,
-          gamification: {
-            totalPoints: isPremium ? 2500 : 5000,
-            level: isPremium ? 15 : 25,
-            experience: isPremium ? 12500 : 25000
-          },
-          location: {
-            city: 'Mumbai',
-            state: 'Maharashtra',
-            country: 'India',
-            timezone: 'Asia/Kolkata'
-          },
-          coordinates: { lat: 19.0760, lng: 72.8777 },
-          deviceInfo: {
-            browser: 'Chrome',
-            os: 'Windows',
-            device: 'desktop',
-            userAgent: 'Mozilla/5.0'
-          },
-          network: { directReferrals: [], level: 1 }
+          credits: isPremium ? 2500 : 5000
         });
 
-        user = await newUser.save();
-        console.log('Demo user recreated successfully');
+        try {
+          user = await newUser.save();
+          console.log('Demo user recreated successfully');
+        } catch (saveError) {
+          console.error('Failed to save demo user:', saveError);
+          return res.status(500).json({ message: 'Failed to create demo user: ' + saveError.message });
+        }
       } catch (createError) {
         console.error('Failed to create demo user:', createError);
         return res.status(500).json({ message: 'Server error creating demo user' });
@@ -568,7 +613,7 @@ router.post('/login', async (req, res) => {
     }
     if (!user) {
       console.log('No user found with email:', normalizedEmail);
-      const exposeErrors = process.env.EXPOSE_ERRORS === 'true' || req.query.debug === 'true';
+      const exposeErrors = process.env.EXPOSE_ERRORS === 'true' || req.query.debug === 'true' || normalizedEmail === 'premium@demo.com' || normalizedEmail === 'superpremium@demo.com';
       return res.status(400).json({
         message: exposeErrors ? 'User not found' : 'Invalid credentials'
       });
@@ -600,7 +645,7 @@ router.post('/login', async (req, res) => {
           console.log('=== PREMIUM USER PASSWORD FAILURE ===');
           console.log('Premium user login failed due to password mismatch');
         }
-        const exposeErrors = process.env.EXPOSE_ERRORS === 'true' || req.query.debug === 'true';
+        const exposeErrors = process.env.EXPOSE_ERRORS === 'true' || req.query.debug === 'true' || normalizedEmail === 'premium@demo.com' || normalizedEmail === 'superpremium@demo.com';
         return res.status(400).json({
           message: exposeErrors ? 'Password incorrect' : 'Invalid credentials'
         });

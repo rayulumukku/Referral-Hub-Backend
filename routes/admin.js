@@ -457,6 +457,54 @@ router.get('/users', auth, requireAdmin, async (req, res) => {
   }
 });
 
+// Update user status (admin only)
+router.put('/users/:userId/status', auth, requireAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { status } = req.body;
+
+    if (!['regular', 'premium', 'super-premium'].includes(status)) {
+      return res.status(400).json({ message: 'Invalid status' });
+    }
+
+    const user = await User.findByIdAndUpdate(userId, { status }, { new: true });
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.json({ message: 'User status updated', user: { id: user._id, email: user.email, username: user.username, status: user.status } });
+  } catch (error) {
+    console.error('Error updating user status:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Reset user password (admin only)
+router.put('/users/:userId/reset-password', auth, requireAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { newPassword } = req.body;
+
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    }
+
+    const bcrypt = require('bcryptjs');
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+    const user = await User.findByIdAndUpdate(userId, { password: hashedPassword }, { new: true });
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.json({ message: 'Password reset successfully', user: { id: user._id, email: user.email, username: user.username } });
+  } catch (error) {
+    console.error('Error resetting password:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Delete user (admin only)
 router.delete('/users/:userId', auth, requireAdmin, async (req, res) => {
   try {
@@ -523,5 +571,24 @@ function getActivityTitle(activity) {
       return 'Activity';
   }
 }
+
+// Get tracking events (admin only)
+router.get('/tracking-events', auth, requireAdmin, async (req, res) => {
+  try {
+    const TrackingEvent = require('../models/TrackingEvent');
+    const { limit = 100, skip = 0 } = req.query;
+
+    const events = await TrackingEvent.find({})
+      .populate('userId', 'username email')
+      .sort({ timestamp: -1 })
+      .limit(parseInt(limit))
+      .skip(parseInt(skip));
+
+    res.json(events);
+  } catch (error) {
+    console.error('Error fetching tracking events:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
 
 module.exports = router;

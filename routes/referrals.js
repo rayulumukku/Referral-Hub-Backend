@@ -196,71 +196,119 @@ router.post('/convert', auth, async (req, res) => {
 
     if (referrals.length === 0) return res.status(400).json({ message: 'No referrals found' });
 
-    // Multi-level commission distribution based on referral levels
+    // Updated commission distribution: First sharer 20%, Last person 30%
     const totalPoints = 1000; // points purchased for the post
-    const commissionRates = {
-      0: 0.40, // Level 0 (Original): 40%
-      1: 0.25, // Level 1: 25%
-      2: 0.15, // Level 2: 15%
-      3: 0.10, // Level 3: 10%
-      4: 0.05  // Level 4+: 5%
-    };
+    const platformFee = Math.floor(totalPoints * 0.1); // 10% platform fee
+    const distributablePoints = totalPoints - platformFee; // 900 points to distribute
 
-    console.log(`Distributing ${totalPoints} points among ${referrals.length} referrals using multi-level system`);
+    console.log(`Distributing ${distributablePoints} points among ${referrals.length} referrals`);
 
-    // Award commissions based on levels
-    for (let i = 0; i < referrals.length; i++) {
-      const level = Math.min(i, 4); // Cap at level 4 for 5% rate
-      const rate = commissionRates[level];
-      const amount = totalPoints * rate;
-
-      console.log(`Referral ${i + 1} (Level ${level}): ${amount} points (${rate * 100}%)`);
-
-      const commission = new Commission({
-        referral: referrals[i]._id,
-        recipient: referrals[i].referrer,
-        amount,
-        percentage: rate * 100,
-        level: level,
+    if (referrals.length === 0) {
+      // No referrals - all points go to platform
+      const platformCommission = new Commission({
+        post: postId,
+        recipient: null, // Platform
+        amount: distributablePoints,
+        percentage: 100,
+        distributionType: 'platform_fee',
+        level: 0,
       });
-
+      await platformCommission.save();
+    } else if (referrals.length === 1) {
+      // Only one referral - they get 50% of distributable points
+      const amount = Math.floor(distributablePoints * 0.5);
+      const commission = new Commission({
+        referral: referrals[0]._id,
+        recipient: referrals[0].referrer,
+        amount,
+        percentage: 50,
+        distributionType: 'single_referral',
+        level: 0,
+      });
       await commission.save();
+      await User.findByIdAndUpdate(referrals[0].referrer, { $inc: { credits: amount } });
+    } else {
+      // Multiple referrals - First gets 20%, Last gets 30%, rest share equally
+      const firstAmount = Math.floor(distributablePoints * 0.2); // 20%
+      const lastAmount = Math.floor(distributablePoints * 0.3);  // 30%
+      const remainingAmount = distributablePoints - firstAmount - lastAmount;
+      const middleAmount = referrals.length > 2 ? Math.floor(remainingAmount / (referrals.length - 2)) : 0;
 
-      // Track commission earned activity
-      await ActivityService.trackCommissionEarned(referrals[i].referrer, amount, referrals[i]._id, level);
+      // First referral gets 20%
+      const firstCommission = new Commission({
+        referral: referrals[0]._id,
+        recipient: referrals[0].referrer,
+        amount: firstAmount,
+        percentage: 20,
+        distributionType: 'first_sharer',
+        level: 0,
+      });
+      await firstCommission.save();
+      await User.findByIdAndUpdate(referrals[0].referrer, { $inc: { credits: firstAmount } });
 
-      // Send notification for commission earned
-      await NotificationService.notifyCommissionEarned(commission);
+      // Last referral gets 30%
+      const lastIndex = referrals.length - 1;
+      const lastCommission = new Commission({
+        referral: referrals[lastIndex]._id,
+        recipient: referrals[lastIndex].referrer,
+        amount: lastAmount,
+        percentage: 30,
+        distributionType: 'last_person',
+        level: lastIndex,
+      });
+      await lastCommission.save();
+      await User.findByIdAndUpdate(referrals[lastIndex].referrer, { $inc: { credits: lastAmount } });
 
-      // Update user credits (points become credits)
-      await User.findByIdAndUpdate(referrals[i].referrer, { $inc: { credits: amount } });
+      // Middle referrals share equally (if more than 2 total)
+      if (referrals.length > 2) {
+        for (let i = 1; i < referrals.length - 1; i++) {
+          const commission = new Commission({
+            referral: referrals[i]._id,
+            recipient: referrals[i].referrer,
+            amount: middleAmount,
+            percentage: Math.floor((middleAmount / distributablePoints) * 100),
+            distributionType: 'middle_share',
+            level: i,
+          });
+          await commission.save();
+          await User.findByIdAndUpdate(referrals[i].referrer, { $inc: { credits: middleAmount } });
+        }
+      }
+    }
 
-      // Emit real-time commission update
-      if (io) {
-        io.to(`user_${referrals[i].referrer}`).emit('commission_update', {
-          type: 'new_commission',
-          commission: {
-            _id: commission._id,
-            amount,
-            level: level,
-            post: postId,
+    // Track activities and send notifications for all commissions
+    const allCommissions = await Commission.find({ post: postId });
+    for (const commission of allCommissions) {
+      if (commission.recipient) {
+        await ActivityService.trackCommissionEarned(commission.recipient, commission.amount, commission.referral, commission.level);
+        await NotificationService.notifyCommissionEarned(commission);
+
+        // Emit real-time updates
+        if (io) {
+          io.to(`user_${commission.recipient}`).emit('commission_update', {
+            type: 'new_commission',
+            commission: {
+              _id: commission._id,
+              amount: commission.amount,
+              level: commission.level,
+              post: postId,
+              timestamp: new Date()
+            }
+          });
+
+          io.to(`user_${commission.recipient}`).emit('credits_update', {
+            newCredits: (await User.findById(commission.recipient)).credits
+          });
+
+          io.to(`user_${commission.recipient}`).emit('user_analytics_update', {
+            type: 'commission_earned',
+            userId: commission.recipient,
+            amount: commission.amount,
+            level: commission.level,
+            postId,
             timestamp: new Date()
-          }
-        });
-
-        io.to(`user_${referrals[i].referrer}`).emit('credits_update', {
-          newCredits: (await User.findById(referrals[i].referrer)).credits
-        });
-
-        // Emit user analytics update for commission earned
-        io.to(`user_${referrals[i].referrer}`).emit('user_analytics_update', {
-          type: 'commission_earned',
-          userId: referrals[i].referrer,
-          amount,
-          level,
-          postId,
-          timestamp: new Date()
-        });
+          });
+        }
       }
     }
 

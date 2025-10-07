@@ -16,11 +16,37 @@ const io = socketIo(server, {
 
 // Middleware
 app.use(cors({
-  origin: ["http://localhost:3000", "https://referral-hub-frontend.vercel.app", "https://referral-hub-frontend.vercel.app/"],
-  credentials: true
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      "http://localhost:3000",
+      "http://localhost:3001", 
+      "https://referral-hub-frontend.vercel.app",
+      "https://referral-hub-frontend.vercel.app/",
+      "http://127.0.0.1:3000",
+      "http://127.0.0.1:3001"
+    ];
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.log('CORS blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
+
+// Handle preflight requests
+app.options('*', cors());
+
 app.set('trust proxy', 1);
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Serve static files for uploads
 app.use('/uploads', express.static('uploads'));
@@ -175,6 +201,59 @@ app.use('/api/link-previews', require('./routes/linkPreviews'));
 app.use('/api/tracking', require('./routes/tracking'));
 app.use('/api/gamification', require('./routes/gamification'));
 console.log('All routes loaded');
+
+// Global error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Global error handler:', err);
+  
+  // Handle CORS errors
+  if (err.message === 'Not allowed by CORS') {
+    return res.status(403).json({
+      message: 'CORS policy violation',
+      error: 'Origin not allowed'
+    });
+  }
+  
+  // Handle validation errors
+  if (err.name === 'ValidationError') {
+    return res.status(400).json({
+      message: 'Validation error',
+      errors: Object.keys(err.errors).reduce((acc, key) => {
+        acc[key] = err.errors[key].message;
+        return acc;
+      }, {})
+    });
+  }
+  
+  // Handle JWT errors
+  if (err.name === 'JsonWebTokenError') {
+    return res.status(401).json({
+      message: 'Invalid token',
+      error: 'Authentication failed'
+    });
+  }
+  
+  if (err.name === 'TokenExpiredError') {
+    return res.status(401).json({
+      message: 'Token expired',
+      error: 'Please login again'
+    });
+  }
+  
+  // Default error response
+  res.status(err.status || 500).json({
+    message: err.message || 'Internal server error',
+    error: process.env.NODE_ENV === 'development' ? err.stack : 'Something went wrong'
+  });
+});
+
+// Handle 404 errors
+app.use('*', (req, res) => {
+  res.status(404).json({
+    message: 'Route not found',
+    error: `Cannot ${req.method} ${req.originalUrl}`
+  });
+});
 
 // Schedule engagement notifications every 1.5 hours (90 minutes)
 const NotificationService = require('./services/notificationService');

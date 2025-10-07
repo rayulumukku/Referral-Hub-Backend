@@ -439,6 +439,27 @@ router.get('/referrals/:userId', auth, async (req, res) => {
   }
 });
 
+// Alternative endpoint for referrals/user/:userId (for compatibility)
+router.get('/referrals/user/:userId', auth, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // Verify user can access this data
+    if (req.user.id !== userId && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Unauthorized' });
+    }
+
+    const referrals = await Referral.find({ referrer: userId })
+      .populate('post', 'title category')
+      .sort({ createdAt: -1 });
+
+    res.json(referrals);
+  } catch (error) {
+    console.error('Error fetching user referrals:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Get user commissions
 router.get('/commissions/:userId', auth, async (req, res) => {
   try {
@@ -448,6 +469,28 @@ router.get('/commissions/:userId', auth, async (req, res) => {
 
     res.json(commissions);
   } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Alternative endpoint for commissions/user/:userId (for compatibility)
+router.get('/commissions/user/:userId', auth, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // Verify user can access this data
+    if (req.user.id !== userId && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Unauthorized' });
+    }
+
+    const commissions = await Commission.find({ recipient: userId })
+      .populate('post', 'title category')
+      .populate('referral', 'platform device')
+      .sort({ createdAt: -1 });
+
+    res.json(commissions);
+  } catch (error) {
+    console.error('Error fetching user commissions:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
