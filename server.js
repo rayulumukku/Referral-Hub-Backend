@@ -246,6 +246,7 @@ app.use('/api/enhanced-referrals', require('./routes/enhancedReferralTracking'))
 app.use('/api/universal', require('./routes/universalData'));
 app.use('/api/ceo', require('./routes/ceoLevelData')); // CEO-LEVEL DATA
 app.use('/api/tree-commission', require('./routes/treeCommission')); // TREE COMMISSION SYSTEM
+app.use('/api/real-time-analytics', require('./routes/realTimeAnalytics')); // REAL-TIME ANALYTICS
 console.log('All routes loaded');
 
 // Global error handling middleware

@@ -1,279 +1,556 @@
-const Post = require('../models/Post');
 const User = require('../models/User');
+const Post = require('../models/Post');
 const Referral = require('../models/Referral');
+const ReferralChain = require('../models/ReferralChain');
 const Commission = require('../models/Commission');
 const Activity = require('../models/Activity');
 const Notification = require('../models/Notification');
+const PostAnalytics = require('../models/PostAnalytics');
+const TrackingEvent = require('../models/TrackingEvent');
 
 class RealTimeAnalyticsService {
-  // Emit real-time analytics update
-  static async emitAnalyticsUpdate(userId, type, data) {
+  // Get real user analytics
+  static async getUserAnalytics(userId) {
     try {
-      const io = require('../server').getIo();
-      if (io) {
-        io.to(`user_${userId}`).emit('analytics_update', {
-          type,
-          data,
-          timestamp: new Date()
-        });
-        
-        // Also emit global update
-        io.emit('global_analytics_update', {
-          type,
-          userId,
-          timestamp: new Date()
-        });
-      }
-    } catch (error) {
-      console.error('Error emitting analytics update:', error);
-    }
-  }
+      const user = await User.findById(userId);
+      if (!user) throw new Error('User not found');
 
-  // Get comprehensive real-time dashboard data
-  static async getRealTimeDashboard(userId) {
-    try {
-      const [
-        userStats,
-        postStats,
-        referralStats,
-        commissionStats,
-        activityStats,
-        networkStats
-      ] = await Promise.all([
-        this.getUserStats(userId),
-        this.getPostStats(userId),
-        this.getReferralStats(userId),
-        this.getCommissionStats(userId),
-        this.getActivityStats(userId),
-        this.getNetworkStats(userId)
-      ]);
+      // Get user's posts
+      const userPosts = await Post.find({ creator: userId });
+      const postIds = userPosts.map(p => p._id);
+
+      // Get user's referrals (both made and received)
+      const referralsMade = await Referral.find({ referrer: userId })
+        .populate('referee', 'username email')
+        .populate('post', 'title category')
+        .sort({ createdAt: -1 });
+
+      const referralsReceived = await Referral.find({ referee: userId })
+        .populate('referrer', 'username email')
+        .populate('post', 'title category')
+        .sort({ createdAt: -1 });
+
+      // Get user's commissions
+      const commissions = await Commission.find({ recipient: userId })
+        .populate('post', 'title category')
+        .sort({ createdAt: -1 });
+
+      // Get user's activities
+      const activities = await Activity.find({ user: userId })
+        .sort({ createdAt: -1 })
+        .limit(50);
+
+      // Get user's notifications
+      const notifications = await Notification.find({ user: userId })
+        .sort({ createdAt: -1 })
+        .limit(20);
+
+      // Get network growth (direct referrals)
+      const networkGrowth = await this.getNetworkGrowth(userId);
+
+      // Get real-time analytics for user's posts
+      const postAnalytics = await this.getPostAnalytics(postIds);
+
+      // Get referral chains for user's posts
+      const referralChains = await this.getReferralChains(postIds);
 
       return {
-        user: userStats,
-        posts: postStats,
-        referrals: referralStats,
-        commissions: commissionStats,
-        activities: activityStats,
-        network: networkStats,
+        user: {
+          id: user._id,
+          username: user.username,
+          email: user.email,
+          level: user.gamification?.level || 1,
+          points: user.gamification?.totalPoints || 0,
+          networkSize: networkGrowth.directReferrals,
+          totalEarnings: commissions.reduce((sum, c) => sum + (c.amount || 0), 0)
+        },
+        posts: userPosts.map(post => ({
+          id: post._id,
+          title: post.title,
+          category: post.category,
+          price: post.price,
+          status: post.status,
+          views: post.analytics?.views || 0,
+          clicks: post.analytics?.clicks || 0,
+          shares: post.analytics?.shares || 0,
+          conversions: post.analytics?.conversions || 0,
+          createdAt: post.createdAt
+        })),
+        referrals: {
+          made: referralsMade.map(ref => ({
+            id: ref._id,
+            referee: ref.referee,
+            post: ref.post,
+            platform: ref.platform,
+            device: ref.device,
+            location: ref.location,
+            createdAt: ref.createdAt
+          })),
+          received: referralsReceived.map(ref => ({
+            id: ref._id,
+            referrer: ref.referrer,
+            post: ref.post,
+            platform: ref.platform,
+            device: ref.device,
+            location: ref.location,
+            createdAt: ref.createdAt
+          }))
+        },
+        commissions: commissions.map(comm => ({
+          id: comm._id,
+          post: comm.post,
+          amount: comm.amount,
+          percentage: comm.percentage,
+          status: comm.status,
+          createdAt: comm.createdAt
+        })),
+        activities: activities.map(activity => ({
+          id: activity._id,
+          type: activity.type,
+          description: activity.description,
+          metadata: activity.metadata,
+          createdAt: activity.createdAt
+        })),
+        notifications: notifications.map(notif => ({
+          id: notif._id,
+          type: notif.type,
+          title: notif.title,
+          message: notif.message,
+          read: notif.read,
+          createdAt: notif.createdAt
+        })),
+        networkGrowth,
+        postAnalytics,
+        referralChains,
         lastUpdated: new Date()
       };
     } catch (error) {
-      console.error('Error getting real-time dashboard:', error);
+      console.error('Error getting user analytics:', error);
       throw error;
     }
   }
 
-  // Get user statistics
-  static async getUserStats(userId) {
-    const user = await User.findById(userId);
-    const totalPosts = await Post.countDocuments({ creator: userId });
-    const totalReferrals = await Referral.countDocuments({ referrer: userId });
-    const totalCommissions = await Commission.countDocuments({ recipient: userId });
-    
-    return {
-      id: user._id,
-      username: user.username,
-      email: user.email,
-      type: user.type,
-      credits: user.credits,
-      status: user.status,
-      totalPosts,
-      totalReferrals,
-      totalCommissions,
-      joinDate: user.createdAt
-    };
-  }
-
-  // Get post statistics
-  static async getPostStats(userId) {
-    const posts = await Post.find({ creator: userId }).sort({ createdAt: -1 });
-    const totalViews = posts.reduce((sum, post) => sum + (post.analytics?.views || 0), 0);
-    const totalShares = posts.reduce((sum, post) => sum + (post.analytics?.shares || 0), 0);
-    const totalClicks = posts.reduce((sum, post) => sum + (post.analytics?.clicks || 0), 0);
-    const totalConversions = posts.reduce((sum, post) => sum + (post.analytics?.conversions || 0), 0);
-    
-    return {
-      total: posts.length,
-      active: posts.filter(p => p.status === 'active').length,
-      sold: posts.filter(p => p.status === 'sold').length,
-      totalViews,
-      totalShares,
-      totalClicks,
-      totalConversions,
-      posts: posts.slice(0, 10) // Latest 10 posts
-    };
-  }
-
-  // Get referral statistics
-  static async getReferralStats(userId) {
-    const referrals = await Referral.find({ referrer: userId })
-      .populate('post', 'title category')
-      .populate('referee', 'username email')
-      .sort({ createdAt: -1 });
-    
-    const platformStats = referrals.reduce((acc, ref) => {
-      const platform = ref.platform || 'unknown';
-      acc[platform] = (acc[platform] || 0) + 1;
-      return acc;
-    }, {});
-    
-    const deviceStats = referrals.reduce((acc, ref) => {
-      const device = ref.device || 'unknown';
-      acc[device] = (acc[device] || 0) + 1;
-      return acc;
-    }, {});
-    
-    return {
-      total: referrals.length,
-      today: referrals.filter(r => {
-        const today = new Date();
-        const refDate = new Date(r.createdAt);
-        return refDate.toDateString() === today.toDateString();
-      }).length,
-      thisWeek: referrals.filter(r => {
-        const weekAgo = new Date();
-        weekAgo.setDate(weekAgo.getDate() - 7);
-        return new Date(r.createdAt) >= weekAgo;
-      }).length,
-      platformStats,
-      deviceStats,
-      referrals: referrals.slice(0, 10) // Latest 10 referrals
-    };
-  }
-
-  // Get commission statistics
-  static async getCommissionStats(userId) {
-    const commissions = await Commission.find({ recipient: userId })
-      .populate('post', 'title category')
-      .populate('referral', 'referee')
-      .sort({ createdAt: -1 });
-    
-    const totalAmount = commissions.reduce((sum, c) => sum + (c.amount || 0), 0);
-    const pendingAmount = commissions
-      .filter(c => c.status === 'pending')
-      .reduce((sum, c) => sum + (c.amount || 0), 0);
-    const paidAmount = commissions
-      .filter(c => c.status === 'paid')
-      .reduce((sum, c) => sum + (c.amount || 0), 0);
-    
-    return {
-      total: commissions.length,
-      totalAmount,
-      pendingAmount,
-      paidAmount,
-      today: commissions.filter(c => {
-        const today = new Date();
-        const commDate = new Date(c.createdAt);
-        return commDate.toDateString() === today.toDateString();
-      }).length,
-      commissions: commissions.slice(0, 10) // Latest 10 commissions
-    };
-  }
-
-  // Get activity statistics
-  static async getActivityStats(userId) {
-    const activities = await Activity.find({ user: userId })
-      .populate('post', 'title')
-      .populate('referral', 'referrer')
-      .sort({ createdAt: -1 })
-      .limit(50);
-    
-    const activityTypes = activities.reduce((acc, activity) => {
-      const type = activity.type || 'unknown';
-      acc[type] = (acc[type] || 0) + 1;
-      return acc;
-    }, {});
-    
-    return {
-      total: activities.length,
-      today: activities.filter(a => {
-        const today = new Date();
-        const actDate = new Date(a.createdAt);
-        return actDate.toDateString() === today.toDateString();
-      }).length,
-      activityTypes,
-      activities: activities.slice(0, 20) // Latest 20 activities
-    };
-  }
-
-  // Get network statistics
-  static async getNetworkStats(userId) {
-    const level1 = await Referral.countDocuments({ referrer: userId });
-    const level1Referees = await Referral.distinct('referee', { referrer: userId });
-    const level2 = await Referral.countDocuments({ 
-      referrer: { $in: level1Referees }
-    });
-    const level2Referees = await Referral.distinct('referee', { 
-      referrer: { $in: level1Referees }
-    });
-    const level3 = await Referral.countDocuments({ 
-      referrer: { $in: level2Referees }
-    });
-    
-    return {
-      level1,
-      level2,
-      level3,
-      total: level1 + level2 + level3,
-      networkGrowth: {
-        today: await Referral.countDocuments({
-          referrer: userId,
-          createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) }
-        }),
-        thisWeek: await Referral.countDocuments({
-          referrer: userId,
-          createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
-        })
-      }
-    };
-  }
-
-  // Update analytics when new referral is created
-  static async onNewReferral(referralId) {
+  // Get network growth data
+  static async getNetworkGrowth(userId) {
     try {
-      const referral = await Referral.findById(referralId)
-        .populate('post', 'creator')
-        .populate('referrer', 'username');
+      // Get direct referrals (level 1)
+      const directReferrals = await User.find({ referrer: userId });
       
-      if (referral) {
-        // Emit to post creator
-        await this.emitAnalyticsUpdate(referral.post.creator._id, 'new_referral', {
-          referralId: referral._id,
-          referrer: referral.referrer.username,
-          platform: referral.platform,
-          timestamp: referral.createdAt
-        });
-        
-        // Emit to referrer
-        await this.emitAnalyticsUpdate(referral.referrer._id, 'referral_created', {
-          referralId: referral._id,
-          post: referral.post.title,
-          platform: referral.platform,
-          timestamp: referral.createdAt
-        });
-      }
+      // Get indirect referrals (level 2+)
+      const indirectReferrals = await this.getIndirectReferrals(userId);
+
+      // Get referral chains
+      const referralChains = await ReferralChain.find({
+        $or: [
+          { originalCreator: userId },
+          { chainHead: userId },
+          { 'chainMembers.user': userId }
+        ]
+      }).populate('chainMembers.user', 'username email');
+
+      return {
+        directReferrals: directReferrals.length,
+        indirectReferrals: indirectReferrals.length,
+        totalNetwork: directReferrals.length + indirectReferrals.length,
+        referralChains: referralChains.length,
+        networkLevel: await this.calculateNetworkLevel(userId),
+        recentGrowth: await this.getRecentGrowth(userId)
+      };
     } catch (error) {
-      console.error('Error updating analytics for new referral:', error);
+      console.error('Error getting network growth:', error);
+      throw error;
     }
   }
 
-  // Update analytics when commission is created
-  static async onNewCommission(commissionId) {
+  // Get indirect referrals
+  static async getIndirectReferrals(userId, level = 2, maxLevel = 5) {
+    if (level > maxLevel) return [];
+
+    const directReferrals = await User.find({ referrer: userId });
+    let indirectReferrals = [];
+
+    for (const directRef of directReferrals) {
+      const nextLevelRefs = await this.getIndirectReferrals(directRef._id, level + 1, maxLevel);
+      indirectReferrals = indirectReferrals.concat(nextLevelRefs);
+    }
+
+    return indirectReferrals;
+  }
+
+  // Calculate network level
+  static async calculateNetworkLevel(userId) {
+    const directReferrals = await User.find({ referrer: userId });
+    if (directReferrals.length === 0) return 0;
+    
+    let maxLevel = 1;
+    for (const ref of directReferrals) {
+      const refLevel = await this.calculateNetworkLevel(ref._id);
+      maxLevel = Math.max(maxLevel, refLevel + 1);
+    }
+    
+    return maxLevel;
+  }
+
+  // Get recent growth
+  static async getRecentGrowth(userId) {
+    const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    
+    const recentReferrals = await User.find({
+      referrer: userId,
+      createdAt: { $gte: oneWeekAgo }
+    });
+
+    return {
+      thisWeek: recentReferrals.length,
+      lastWeek: await this.getLastWeekGrowth(userId),
+      growthRate: await this.calculateGrowthRate(userId)
+    };
+  }
+
+  // Get last week growth
+  static async getLastWeekGrowth(userId) {
+    const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+    const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    
+    const lastWeekReferrals = await User.find({
+      referrer: userId,
+      createdAt: { $gte: twoWeeksAgo, $lt: oneWeekAgo }
+    });
+
+    return lastWeekReferrals.length;
+  }
+
+  // Calculate growth rate
+  static async calculateGrowthRate(userId) {
+    const thisWeek = await this.getRecentGrowth(userId);
+    const lastWeek = thisWeek.lastWeek;
+    
+    if (lastWeek === 0) return thisWeek.thisWeek > 0 ? 100 : 0;
+    return ((thisWeek.thisWeek - lastWeek) / lastWeek) * 100;
+  }
+
+  // Get post analytics
+  static async getPostAnalytics(postIds) {
     try {
-      const commission = await Commission.findById(commissionId)
-        .populate('recipient', 'username')
-        .populate('post', 'title');
+      const analytics = {
+        totalViews: 0,
+        totalClicks: 0,
+        totalShares: 0,
+        totalConversions: 0,
+        platformDistribution: {},
+        deviceDistribution: {},
+        browserDistribution: {},
+        locationDistribution: {},
+        timeDistribution: {},
+        engagementMetrics: {}
+      };
+
+      // Get all analytics for these posts
+      const postAnalytics = await PostAnalytics.find({ post: { $in: postIds } });
       
-      if (commission) {
-        await this.emitAnalyticsUpdate(commission.recipient._id, 'new_commission', {
-          commissionId: commission._id,
-          amount: commission.amount,
-          post: commission.post.title,
-          timestamp: commission.createdAt
+      // Get tracking events
+      const trackingEvents = await TrackingEvent.find({ postId: { $in: postIds } });
+
+      // Aggregate data
+      postAnalytics.forEach(analytics => {
+        analytics.totalViews += analytics.type === 'view' ? 1 : 0;
+        analytics.totalClicks += analytics.type === 'click' ? 1 : 0;
+        analytics.totalShares += analytics.type === 'share' ? 1 : 0;
+        analytics.totalConversions += analytics.type === 'conversion' ? 1 : 0;
+
+        // Platform distribution
+        if (analytics.platform) {
+          analytics.platformDistribution[analytics.platform] = 
+            (analytics.platformDistribution[analytics.platform] || 0) + 1;
+        }
+
+        // Device distribution
+        if (analytics.device) {
+          analytics.deviceDistribution[analytics.device] = 
+            (analytics.deviceDistribution[analytics.device] || 0) + 1;
+        }
+
+        // Browser distribution
+        if (analytics.browser) {
+          analytics.browserDistribution[analytics.browser] = 
+            (analytics.browserDistribution[analytics.browser] || 0) + 1;
+        }
+
+        // Location distribution
+        if (analytics.location?.country) {
+          analytics.locationDistribution[analytics.location.country] = 
+            (analytics.locationDistribution[analytics.location.country] || 0) + 1;
+        }
+
+        // Time distribution
+        const hour = new Date(analytics.timestamp).getHours();
+        analytics.timeDistribution[hour] = (analytics.timeDistribution[hour] || 0) + 1;
+      });
+
+      // Calculate engagement metrics
+      analytics.engagementMetrics = {
+        averageTimeSpent: postAnalytics.reduce((sum, a) => sum + (a.timeSpent || 0), 0) / Math.max(postAnalytics.length, 1),
+        averageScrollDepth: postAnalytics.reduce((sum, a) => sum + (a.scrollDepth || 0), 0) / Math.max(postAnalytics.length, 1),
+        totalInteractions: analytics.totalClicks + analytics.totalShares,
+        engagementRate: analytics.totalViews > 0 ? (analytics.totalClicks / analytics.totalViews) * 100 : 0,
+        conversionRate: analytics.totalClicks > 0 ? (analytics.totalConversions / analytics.totalClicks) * 100 : 0
+      };
+
+      return analytics;
+    } catch (error) {
+      console.error('Error getting post analytics:', error);
+      throw error;
+    }
+  }
+
+  // Get referral chains
+  static async getReferralChains(postIds) {
+    try {
+      const chains = await ReferralChain.find({ post: { $in: postIds } })
+        .populate('chainMembers.user', 'username email')
+        .populate('originalCreator', 'username email')
+        .populate('chainHead', 'username email')
+        .sort({ createdAt: -1 });
+
+      return chains.map(chain => ({
+        id: chain._id,
+        postId: chain.post,
+        originalCreator: chain.originalCreator,
+        chainHead: chain.chainHead,
+        members: chain.chainMembers.map(member => ({
+          user: member.user,
+          position: member.position,
+          platform: member.platform,
+          device: member.device,
+          browser: member.browser,
+          location: member.location,
+          clickCount: member.clickCount,
+          shareCount: member.shareCount,
+          engagementScore: member.engagementScore,
+          joinedAt: member.joinedAt
+        })),
+        totalClicks: chain.totalClicks,
+        totalShares: chain.totalShares,
+        conversionOccurred: chain.conversionOccurred,
+        status: chain.status,
+        createdAt: chain.createdAt
+      }));
+    } catch (error) {
+      console.error('Error getting referral chains:', error);
+      throw error;
+    }
+  }
+
+  // Get admin analytics for all posts
+  static async getAdminAnalytics() {
+    try {
+      // Get all posts
+      const allPosts = await Post.find().populate('creator', 'username email');
+      
+      // Get all users
+      const allUsers = await User.find();
+      
+      // Get all referrals
+      const allReferrals = await Referral.find()
+        .populate('referrer', 'username email')
+        .populate('referee', 'username email')
+        .populate('post', 'title category');
+
+      // Get all commissions
+      const allCommissions = await Commission.find()
+        .populate('recipient', 'username email')
+        .populate('post', 'title category');
+
+      // Get all activities
+      const allActivities = await Activity.find()
+        .populate('user', 'username email')
+        .sort({ createdAt: -1 })
+        .limit(100);
+
+      // Get platform-wide analytics
+      const platformAnalytics = await this.getPlatformAnalytics();
+
+      return {
+        overview: {
+          totalUsers: allUsers.length,
+          totalPosts: allPosts.length,
+          totalReferrals: allReferrals.length,
+          totalCommissions: allCommissions.length,
+          totalRevenue: allCommissions.reduce((sum, c) => sum + (c.amount || 0), 0)
+        },
+        posts: allPosts.map(post => ({
+          id: post._id,
+          title: post.title,
+          creator: post.creator,
+          category: post.category,
+          price: post.price,
+          status: post.status,
+          views: post.analytics?.views || 0,
+          clicks: post.analytics?.clicks || 0,
+          shares: post.analytics?.shares || 0,
+          conversions: post.analytics?.conversions || 0,
+          createdAt: post.createdAt
+        })),
+        users: allUsers.map(user => ({
+          id: user._id,
+          username: user.username,
+          email: user.email,
+          level: user.gamification?.level || 1,
+          points: user.gamification?.totalPoints || 0,
+          networkSize: user.network?.directReferrals?.length || 0,
+          totalEarnings: 0 // Will be calculated separately
+        })),
+        referrals: allReferrals,
+        commissions: allCommissions,
+        activities: allActivities,
+        platformAnalytics,
+        lastUpdated: new Date()
+      };
+    } catch (error) {
+      console.error('Error getting admin analytics:', error);
+      throw error;
+    }
+  }
+
+  // Get platform analytics
+  static async getPlatformAnalytics() {
+    try {
+      const analytics = {
+        totalViews: 0,
+        totalClicks: 0,
+        totalShares: 0,
+        totalConversions: 0,
+        platformDistribution: {},
+        deviceDistribution: {},
+        browserDistribution: {},
+        locationDistribution: {},
+        timeDistribution: {},
+        engagementMetrics: {}
+      };
+
+      // Get all post analytics
+      const allPostAnalytics = await PostAnalytics.find();
+      
+      // Get all tracking events
+      const allTrackingEvents = await TrackingEvent.find();
+
+      // Aggregate data
+      allPostAnalytics.forEach(analytics => {
+        analytics.totalViews += analytics.type === 'view' ? 1 : 0;
+        analytics.totalClicks += analytics.type === 'click' ? 1 : 0;
+        analytics.totalShares += analytics.type === 'share' ? 1 : 0;
+        analytics.totalConversions += analytics.type === 'conversion' ? 1 : 0;
+
+        // Platform distribution
+        if (analytics.platform) {
+          analytics.platformDistribution[analytics.platform] = 
+            (analytics.platformDistribution[analytics.platform] || 0) + 1;
+        }
+
+        // Device distribution
+        if (analytics.device) {
+          analytics.deviceDistribution[analytics.device] = 
+            (analytics.deviceDistribution[analytics.device] || 0) + 1;
+        }
+
+        // Browser distribution
+        if (analytics.browser) {
+          analytics.browserDistribution[analytics.browser] = 
+            (analytics.browserDistribution[analytics.browser] || 0) + 1;
+        }
+
+        // Location distribution
+        if (analytics.location?.country) {
+          analytics.locationDistribution[analytics.location.country] = 
+            (analytics.locationDistribution[analytics.location.country] || 0) + 1;
+        }
+
+        // Time distribution
+        const hour = new Date(analytics.timestamp).getHours();
+        analytics.timeDistribution[hour] = (analytics.timeDistribution[hour] || 0) + 1;
+      });
+
+      // Calculate engagement metrics
+      analytics.engagementMetrics = {
+        averageTimeSpent: allPostAnalytics.reduce((sum, a) => sum + (a.timeSpent || 0), 0) / Math.max(allPostAnalytics.length, 1),
+        averageScrollDepth: allPostAnalytics.reduce((sum, a) => sum + (a.scrollDepth || 0), 0) / Math.max(allPostAnalytics.length, 1),
+        totalInteractions: analytics.totalClicks + analytics.totalShares,
+        engagementRate: analytics.totalViews > 0 ? (analytics.totalClicks / analytics.totalViews) * 100 : 0,
+        conversionRate: analytics.totalClicks > 0 ? (analytics.totalConversions / analytics.totalClicks) * 100 : 0
+      };
+
+      return analytics;
+    } catch (error) {
+      console.error('Error getting platform analytics:', error);
+      throw error;
+    }
+  }
+
+  // Create notification for new post
+  static async createPostNotification(postId, creatorId) {
+    try {
+      // Get all users except the creator
+      const allUsers = await User.find({ _id: { $ne: creatorId } });
+      
+      // Create notifications for all users
+      const notifications = allUsers.map(user => ({
+        user: user._id,
+        type: 'new_post',
+        title: 'New Post Available',
+        message: 'A new post has been created on the platform',
+        metadata: {
+          postId,
+          creatorId
+        }
+      }));
+
+      await Notification.insertMany(notifications);
+      
+      // Emit real-time notification
+      const io = require('../server').getIo();
+      if (io) {
+        io.emit('new_post_notification', {
+          postId,
+          creatorId,
+          timestamp: new Date()
         });
       }
     } catch (error) {
-      console.error('Error updating analytics for new commission:', error);
+      console.error('Error creating post notification:', error);
+      throw error;
+    }
+  }
+
+  // Track real-time activity
+  static async trackActivity(userId, type, description, metadata = {}) {
+    try {
+      const activity = new Activity({
+        user: userId,
+        type,
+        description,
+        metadata
+      });
+
+      await activity.save();
+
+      // Emit real-time update
+      const io = require('../server').getIo();
+      if (io) {
+        io.to(`user_${userId}`).emit('activity_update', {
+          type: 'new_activity',
+          activity: {
+            id: activity._id,
+            type: activity.type,
+            description: activity.description,
+            timestamp: activity.createdAt
+          }
+        });
+      }
+
+      return activity;
+    } catch (error) {
+      console.error('Error tracking activity:', error);
+      throw error;
     }
   }
 }
