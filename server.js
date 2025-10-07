@@ -242,6 +242,10 @@ app.use('/api', require('./routes/missingEndpoints'));
 app.use('/api/referral-tracking', require('./routes/referralTracking'));
 app.use('/api/analytics', require('./routes/expertAnalytics'));
 app.use('/api/complete', require('./routes/completeAnalytics'));
+app.use('/api/enhanced-referrals', require('./routes/enhancedReferralTracking'));
+app.use('/api/universal', require('./routes/universalData'));
+app.use('/api/ceo', require('./routes/ceoLevelData')); // CEO-LEVEL DATA
+app.use('/api/tree-commission', require('./routes/treeCommission')); // TREE COMMISSION SYSTEM
 console.log('All routes loaded');
 
 // Global error handling middleware
