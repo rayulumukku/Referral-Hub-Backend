@@ -59,7 +59,47 @@ class CommissionService {
     };
   }
 
-  // Distribute points according to the algorithm
+  // Find the head of the specific chain that led to the sale
+  static async findChainHead(postId, saleReferral) {
+    // Find the original referrer (head of the chain)
+    let chainHead = saleReferral;
+    let currentReferral = saleReferral;
+
+    // Go up the chain to find the head (person you originally shared to)
+    while (currentReferral.parentReferral) {
+      const parent = await Referral.findById(currentReferral.parentReferral)
+        .populate('referrer')
+        .populate('referee');
+      if (parent) {
+        chainHead = parent;
+        currentReferral = parent;
+      } else {
+        break;
+      }
+    }
+
+    return chainHead;
+  }
+
+  // Get all people in the specific chain that led to the sale
+  static async getChainMembers(postId, chainHead) {
+    // Find all referrals that belong to this specific chain
+    const chainMembers = await Referral.find({
+      post: postId,
+      $or: [
+        { _id: chainHead._id }, // The head itself
+        { parentReferral: chainHead._id }, // Direct children
+        { 'chain.chainId': chainHead.chain?.chainId } // Same chain ID
+      ]
+    })
+    .populate('referrer')
+    .populate('referee')
+    .sort({ timestamp: 1 });
+
+    return chainMembers;
+  }
+
+  // Distribute points according to the tree-like algorithm
   static async distributePoints(postId, buyerUserId, soldPrice, soldAt) {
     const post = await Post.findById(postId).populate('creator');
     if (!post) {
@@ -93,7 +133,18 @@ class CommissionService {
 
     const { chain, saleReferral } = saleData;
 
-    // Updated distribution logic: First sharer 20%, Last person 30%
+    // Find the head of the specific chain that led to the sale
+    const chainHead = await this.findChainHead(postId, saleReferral);
+    
+    // Get all members in this specific chain
+    const chainMembers = await this.getChainMembers(postId, chainHead);
+    
+    console.log('=== TREE-LIKE COMMISSION DISTRIBUTION ===');
+    console.log('Chain Head:', chainHead.referrer?.username || 'Unknown');
+    console.log('Sale Referral:', saleReferral.referrer?.username || 'Unknown');
+    console.log('Total Chain Members:', chainMembers.length);
+
+    // Tree-like distribution logic: Last person 30%, Chain head 20%, Others share remaining 50%
     if (chain.length === 0) {
       // No referrals - all points go to platform
       await this.createCommission({
@@ -114,7 +165,6 @@ class CommissionService {
           soldPrice
         }
       });
-      return;
     } else if (chain.length === 1) {
       // Only one referral - they get 50% of distributable points
       const amount = Math.floor(distribution.distributableAmount * 0.5);
@@ -122,7 +172,7 @@ class CommissionService {
         post: postId,
         referral: chain[0]._id,
         recipient: chain[0].referrer,
-        amount,
+        amount: amount,
         percentage: 50,
         distributionType: 'single_referral',
         chainPosition: 0,
@@ -139,20 +189,35 @@ class CommissionService {
         }
       });
     } else {
-      // Multiple referrals - First gets 20%, Last gets 30%, rest share equally
-      const firstAmount = Math.floor(distribution.distributableAmount * 0.2); // 20%
-      const lastAmount = Math.floor(distribution.distributableAmount * 0.3);  // 30%
-      const remainingAmount = distribution.distributableAmount - firstAmount - lastAmount;
-      const middleAmount = chain.length > 2 ? Math.floor(remainingAmount / (chain.length - 2)) : 0;
+      // TREE-LIKE COMMISSION LOGIC: Multiple referrals in tree structure
+      // Last person (buyer's direct referrer) gets 30%
+      // Chain head (person you originally shared to) gets 20%
+      // All other people in the chain share remaining 50% equally
+      const lastAmount = Math.floor(distribution.distributableAmount * 0.3);  // 30% to last person
+      const chainHeadAmount = Math.floor(distribution.distributableAmount * 0.2); // 20% to chain head
+      const remainingAmount = distribution.distributableAmount - lastAmount - chainHeadAmount;
+      
+      // Calculate how many people get equal share (excluding last person and chain head)
+      const otherMembers = chainMembers.filter(member => 
+        member._id.toString() !== saleReferral._id.toString() && 
+        member._id.toString() !== chainHead._id.toString()
+      );
+      const otherAmount = otherMembers.length > 0 ? Math.floor(remainingAmount / otherMembers.length) : 0;
 
-      // First referral gets 20%
+      console.log('TREE-LIKE COMMISSION DISTRIBUTION:');
+      console.log('- Last person (buyer\'s referrer):', lastAmount, 'points (30%)');
+      console.log('- Chain head (original sharee):', chainHeadAmount, 'points (20%)');
+      console.log('- Other chain members (' + otherMembers.length + '):', otherAmount, 'points each');
+      console.log('- Remaining amount:', remainingAmount, 'points');
+
+      // Chain head gets 20%
       await this.createCommission({
         post: postId,
-        referral: chain[0]._id,
-        recipient: chain[0].referrer,
-        amount: firstAmount,
+        referral: chainHead._id,
+        recipient: chainHead.referrer,
+        amount: chainHeadAmount,
         percentage: 20,
-        distributionType: 'first_sharer',
+        distributionType: 'chain_head',
         chainPosition: 0,
         totalPointsPool: distribution.pointsPool,
         platformFee: distribution.platformFee,
@@ -167,16 +232,15 @@ class CommissionService {
         }
       });
 
-      // Last referral gets 30%
-      const lastIndex = chain.length - 1;
+      // Last person (buyer's referrer) gets 30%
       await this.createCommission({
         post: postId,
-        referral: chain[lastIndex]._id,
-        recipient: chain[lastIndex].referrer,
+        referral: saleReferral._id,
+        recipient: saleReferral.referrer,
         amount: lastAmount,
         percentage: 30,
         distributionType: 'last_person',
-        chainPosition: lastIndex,
+        chainPosition: chain.length - 1,
         totalPointsPool: distribution.pointsPool,
         platformFee: distribution.platformFee,
         distributableAmount: distribution.distributableAmount,
@@ -190,17 +254,17 @@ class CommissionService {
         }
       });
 
-      // Middle referrals share equally (if more than 2 total)
-      if (chain.length > 2) {
-        for (let i = 1; i < chain.length - 1; i++) {
+      // Other chain members share remaining 50% equally
+      if (otherMembers.length > 0) {
+        for (const member of otherMembers) {
           await this.createCommission({
             post: postId,
-            referral: chain[i]._id,
-            recipient: chain[i].referrer,
-            amount: middleAmount,
-            percentage: Math.floor((middleAmount / distribution.distributableAmount) * 100),
-            distributionType: 'middle_share',
-            chainPosition: i,
+            referral: member._id,
+            recipient: member.referrer,
+            amount: otherAmount,
+            percentage: Math.floor((otherAmount / distribution.distributableAmount) * 100),
+            distributionType: 'chain_member',
+            chainPosition: member.chain?.position || 0,
             totalPointsPool: distribution.pointsPool,
             platformFee: distribution.platformFee,
             distributableAmount: distribution.distributableAmount,
@@ -236,118 +300,6 @@ class CommissionService {
         soldPrice
       }
     });
-
-    // Remove the post creator from the chain (they don't get commission)
-    const filteredChain = chain.filter(ref =>
-      ref.referrer._id.toString() !== post.creator._id.toString()
-    );
-
-    if (filteredChain.length === 0) {
-      // Only the creator was involved - all points to platform
-      await this.createCommission({
-        post: postId,
-        recipient: null,
-        amount: distribution.distributableAmount,
-        percentage: 100,
-        distributionType: 'platform_fee',
-        totalPointsPool: distribution.pointsPool,
-        platformFee: distribution.platformFee,
-        distributableAmount: distribution.distributableAmount,
-        saleDetails: {
-          soldAt,
-          buyerInfo: {
-            name: saleReferral.referee?.username || 'Unknown',
-            email: saleReferral.referee?.email || 'Unknown'
-          },
-          soldPrice
-        }
-      });
-      return;
-    }
-
-    // Simplified commission system:
-    // - 30% to the person who directly shared to the buyer (right person)
-    // - 20% to each person in the referral chain (correct chain sharing)
-
-    const directReferrer = saleReferral; // The person who directly referred the buyer
-    const chainMembers = filteredChain.filter(ref => ref._id.toString() !== directReferrer._id.toString());
-
-    // 30% to direct referrer (right person)
-    const directReferrerAmount = Math.floor(distribution.distributableAmount * 0.3);
-    if (directReferrer.referrer) {
-      await this.createCommission({
-        post: postId,
-        referral: directReferrer._id,
-        recipient: directReferrer.referrer._id,
-        amount: directReferrerAmount,
-        percentage: 30,
-        distributionType: 'direct_referral',
-        chainPosition: filteredChain.length, // Last in chain
-        totalPointsPool: distribution.pointsPool,
-        platformFee: distribution.platformFee,
-        distributableAmount: distribution.distributableAmount,
-        saleDetails: {
-          soldAt,
-          buyerInfo: {
-            name: saleReferral.referee?.username || 'Unknown',
-            email: saleReferral.referee?.email || 'Unknown'
-          },
-          soldPrice
-        }
-      });
-    }
-
-    // 20% to each remaining chain member (correct chain sharing)
-    const remainingAmount = distribution.distributableAmount - directReferrerAmount;
-    if (chainMembers.length > 0 && remainingAmount > 0) {
-      const amountPerChainMember = Math.floor(remainingAmount / chainMembers.length);
-
-      for (let i = 0; i < chainMembers.length; i++) {
-        const member = chainMembers[i];
-        if (member.referrer) {
-          await this.createCommission({
-            post: postId,
-            referral: member._id,
-            recipient: member.referrer._id,
-            amount: amountPerChainMember,
-            percentage: 20,
-            distributionType: 'chain_sharing',
-            chainPosition: i + 1, // Position in chain
-            totalPointsPool: distribution.pointsPool,
-            platformFee: distribution.platformFee,
-            distributableAmount: distribution.distributableAmount,
-            saleDetails: {
-              soldAt,
-              buyerInfo: {
-                name: saleReferral.referee?.username || 'Unknown',
-                email: saleReferral.referee?.email || 'Unknown'
-              },
-              soldPrice
-            }
-          });
-        }
-      }
-    }
-
-    // Create platform fee commission
-    await this.createCommission({
-      post: postId,
-      recipient: null, // Platform
-      amount: distribution.platformFee,
-      percentage: 10,
-      distributionType: 'platform_fee',
-      totalPointsPool: distribution.pointsPool,
-      platformFee: distribution.platformFee,
-      distributableAmount: distribution.distributableAmount,
-      saleDetails: {
-        soldAt,
-        buyerInfo: {
-          name: saleReferral.referee?.username || 'Unknown',
-          email: saleReferral.referee?.email || 'Unknown'
-        },
-        soldPrice
-      }
-    });
   }
 
   // Create a commission record
@@ -369,14 +321,6 @@ class CommissionService {
   static async getPostCommissions(postId) {
     return await Commission.find({ post: postId })
       .populate('recipient', 'username email')
-      .populate('referral')
-      .sort({ createdAt: -1 });
-  }
-
-  // Get user commissions
-  static async getUserCommissions(userId) {
-    return await Commission.find({ recipient: userId })
-      .populate('post', 'title')
       .populate('referral')
       .sort({ createdAt: -1 });
   }

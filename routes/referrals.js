@@ -18,7 +18,7 @@ const setIoInstance = (ioInstance) => {
 // Attach setIoInstance to router
 router.setIoInstance = setIoInstance;
 
-// Track referral click (public endpoint)
+// Track referral click (public endpoint) - Enhanced with comprehensive tracking
 router.post('/track', async (req, res) => {
   try {
     const {
@@ -37,71 +37,38 @@ router.post('/track', async (req, res) => {
       sessionId,
       referrer: httpReferrer,
       language,
-      parentReferralId // Link to parent referral in chain
+      parentReferralId, // Link to parent referral in chain
+      fromLocation, // Where the link was shared from
+      toLocation, // Where the link was clicked
+      interactionType, // click, share, view, scroll, hover
+      duration, // Time spent
+      scrollDepth // How far user scrolled
     } = req.body;
 
-    // Get post to calculate distance and time
-    const Post = require('../models/Post');
-    const post = await Post.findById(postId);
-
-    let distance = 0;
-    let timeTaken = 0;
-
-    if (post) {
-      // Calculate distance from post creation location
-      if (post.location && coordinates) {
-        const R = 6371; // Earth's radius in km
-        const dLat = (coordinates.latitude - post.location.latitude) * Math.PI / 180;
-        const dLon = (coordinates.longitude - post.location.longitude) * Math.PI / 180;
-        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-          Math.cos(post.location.latitude * Math.PI / 180) * Math.cos(coordinates.latitude * Math.PI / 180) *
-          Math.sin(dLon/2) * Math.sin(dLon/2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        distance = R * c;
-      }
-
-      // Calculate time taken from post creation
-      timeTaken = (Date.now() - post.createdAt.getTime()) / (1000 * 60); // in minutes
-    }
-
-    // Find chain position
-    let chainPosition = 1;
-    if (parentReferralId) {
-      const parentReferral = await Referral.findById(parentReferralId);
-      if (parentReferral) {
-        chainPosition = parentReferral.chainPosition + 1;
-      }
-    }
-
-    const referral = new Referral({
-      post: postId,
-      referrer: referrerId || null, // Allow null for anonymous referrals
-      referee: refereeId,
-      platform: platform || 'web',
-      location: location || {
-        city: 'Unknown',
-        state: 'Unknown',
-        country: 'Unknown',
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
-      },
-      device: device || 'desktop',
-      browser: browser || 'Chrome',
-      userAgent: userAgent || 'Mozilla/5.0',
-      screenSize: screenSize || { width: 1920, height: 1080 },
-      coordinates: coordinates || { latitude: 0, longitude: 0, accuracy: 0 },
-      ipAddress: ipAddress || req.ip,
-      networkInfo: networkInfo || { isp: 'Unknown', connectionType: 'unknown' },
-      sessionId: sessionId || `session_${Date.now()}`,
-      referrer: httpReferrer || 'Direct',
-      language: language || 'en-US',
-      distance: distance || 0,
-      timeTaken: timeTaken || 0,
-      chainPosition: chainPosition || 1,
-      parentReferral: parentReferralId,
-      level: 1
+    // Use comprehensive tracking service
+    const TrackingService = require('../services/trackingService');
+    
+    // Track the referral click with all data
+    const referral = await TrackingService.trackReferralClick({
+      postId,
+      referrerId,
+      refereeId,
+      platform,
+      device,
+      browser,
+      userAgent,
+      screenSize,
+      coordinates,
+      ipAddress,
+      networkInfo,
+      sessionId,
+      language,
+      parentReferralId,
+      fromLocation,
+      toLocation
     });
 
-    await referral.save();
+    // Referral already created by TrackingService
 
     // Track referral click activity
     await ActivityService.trackReferralClick(referrerId, postId, platform, {
@@ -189,92 +156,27 @@ router.post('/track', async (req, res) => {
 // Record conversion and calculate commissions
 router.post('/convert', auth, async (req, res) => {
   try {
-    const { postId } = req.body;
+    const { postId, buyerUserId } = req.body;
 
-    // Find all referrals for this post
-    const referrals = await Referral.find({ post: postId }).sort({ createdAt: 1 });
+    // Use the new commission service for distribution
+    const CommissionService = require('../services/commissionService');
+    
+    console.log('Using new commission distribution logic...');
+    const result = await CommissionService.distributePoints(
+      postId, 
+      buyerUserId || req.user.id, 
+      1000, // soldPrice
+      new Date() // soldAt
+    );
 
-    if (referrals.length === 0) return res.status(400).json({ message: 'No referrals found' });
+    console.log('Commission distribution result:', result);
 
-    // Updated commission distribution: First sharer 20%, Last person 30%
-    const totalPoints = 1000; // points purchased for the post
-    const platformFee = Math.floor(totalPoints * 0.1); // 10% platform fee
-    const distributablePoints = totalPoints - platformFee; // 900 points to distribute
-
-    console.log(`Distributing ${distributablePoints} points among ${referrals.length} referrals`);
-
-    if (referrals.length === 0) {
-      // No referrals - all points go to platform
-      const platformCommission = new Commission({
-        post: postId,
-        recipient: null, // Platform
-        amount: distributablePoints,
-        percentage: 100,
-        distributionType: 'platform_fee',
-        level: 0,
-      });
-      await platformCommission.save();
-    } else if (referrals.length === 1) {
-      // Only one referral - they get 50% of distributable points
-      const amount = Math.floor(distributablePoints * 0.5);
-      const commission = new Commission({
-        referral: referrals[0]._id,
-        recipient: referrals[0].referrer,
-        amount,
-        percentage: 50,
-        distributionType: 'single_referral',
-        level: 0,
-      });
-      await commission.save();
-      await User.findByIdAndUpdate(referrals[0].referrer, { $inc: { credits: amount } });
-    } else {
-      // Multiple referrals - First gets 20%, Last gets 30%, rest share equally
-      const firstAmount = Math.floor(distributablePoints * 0.2); // 20%
-      const lastAmount = Math.floor(distributablePoints * 0.3);  // 30%
-      const remainingAmount = distributablePoints - firstAmount - lastAmount;
-      const middleAmount = referrals.length > 2 ? Math.floor(remainingAmount / (referrals.length - 2)) : 0;
-
-      // First referral gets 20%
-      const firstCommission = new Commission({
-        referral: referrals[0]._id,
-        recipient: referrals[0].referrer,
-        amount: firstAmount,
-        percentage: 20,
-        distributionType: 'first_sharer',
-        level: 0,
-      });
-      await firstCommission.save();
-      await User.findByIdAndUpdate(referrals[0].referrer, { $inc: { credits: firstAmount } });
-
-      // Last referral gets 30%
-      const lastIndex = referrals.length - 1;
-      const lastCommission = new Commission({
-        referral: referrals[lastIndex]._id,
-        recipient: referrals[lastIndex].referrer,
-        amount: lastAmount,
-        percentage: 30,
-        distributionType: 'last_person',
-        level: lastIndex,
-      });
-      await lastCommission.save();
-      await User.findByIdAndUpdate(referrals[lastIndex].referrer, { $inc: { credits: lastAmount } });
-
-      // Middle referrals share equally (if more than 2 total)
-      if (referrals.length > 2) {
-        for (let i = 1; i < referrals.length - 1; i++) {
-          const commission = new Commission({
-            referral: referrals[i]._id,
-            recipient: referrals[i].referrer,
-            amount: middleAmount,
-            percentage: Math.floor((middleAmount / distributablePoints) * 100),
-            distributionType: 'middle_share',
-            level: i,
-          });
-          await commission.save();
-          await User.findByIdAndUpdate(referrals[i].referrer, { $inc: { credits: middleAmount } });
-        }
-      }
-    }
+    // Update post conversion status
+    const Post = require('../models/Post');
+    await Post.findByIdAndUpdate(postId, { 
+      $inc: { conversions: 1 },
+      $set: { status: 'sold' }
+    });
 
     // Track activities and send notifications for all commissions
     const allCommissions = await Commission.find({ post: postId });
@@ -312,9 +214,7 @@ router.post('/convert', auth, async (req, res) => {
       }
     }
 
-    // Update post conversions
-    const Post = require('../models/Post');
-    await Post.findByIdAndUpdate(postId, { $inc: { conversions: 1 } });
+    // Post conversion already updated above
 
     // Emit conversion update
     if (io) {
@@ -328,7 +228,12 @@ router.post('/convert', auth, async (req, res) => {
       }
     }
 
-    res.json({ message: 'Conversion recorded and multi-level commissions distributed' });
+    res.json({ 
+      message: 'Conversion recorded and commissions distributed using new logic',
+      totalCommissions: result.commissions?.length || 0,
+      totalDistributed: result.totalDistributed || 0,
+      platformFee: result.platformFee || 0
+    });
   } catch (error) {
     console.error('Conversion error:', error);
     res.status(500).json({ message: 'Server error' });
@@ -432,6 +337,94 @@ router.get('/chain/:userId', async (req, res) => {
     res.json(chain);
   } catch (error) {
     console.error('Chain fetch error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get comprehensive analytics for a post
+router.get('/analytics/:postId', async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const TrackingService = require('../services/trackingService');
+    
+    const analytics = await TrackingService.getPostAnalytics(postId);
+    
+    res.json({
+      success: true,
+      analytics
+    });
+  } catch (error) {
+    console.error('Analytics error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Track user interactions (scroll, hover, time spent)
+router.post('/interaction', async (req, res) => {
+  try {
+    const {
+      postId,
+      referrerId,
+      interactionType,
+      duration,
+      scrollDepth,
+      parentReferralId
+    } = req.body;
+
+    const TrackingService = require('../services/trackingService');
+    
+    const result = await TrackingService.trackInteraction({
+      postId,
+      referrerId,
+      interactionType,
+      duration,
+      scrollDepth,
+      parentReferralId
+    });
+
+    res.json({
+      success: true,
+      message: 'Interaction tracked',
+      result
+    });
+  } catch (error) {
+    console.error('Interaction tracking error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Track share action
+router.post('/share', async (req, res) => {
+  try {
+    const {
+      postId,
+      referrerId,
+      platform,
+      device,
+      browser,
+      coordinates,
+      parentReferralId
+    } = req.body;
+
+    const TrackingService = require('../services/trackingService');
+    
+    const result = await TrackingService.trackShare({
+      postId,
+      referrerId,
+      platform,
+      device,
+      browser,
+      coordinates,
+      parentReferralId
+    });
+
+    res.json({
+      success: true,
+      message: 'Share tracked',
+      result
+    });
+  } catch (error) {
+    console.error('Share tracking error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
