@@ -20,19 +20,36 @@ app.use(cors({
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     
-    const allowedOrigins = [
-      "http://localhost:3000",
-      "http://localhost:3001", 
-      "https://referral-hub-frontend.vercel.app",
-      "https://referral-hub-frontend.vercel.app/",
-      "http://127.0.0.1:3000",
-      "http://127.0.0.1:3001"
-    ];
+    // Get allowed origins from environment variable or use defaults
+    const envOrigins = process.env.CORS_ORIGINS;
+    const allowedOrigins = envOrigins ? 
+      envOrigins.split(',').map(origin => origin.trim()) : 
+      [
+        "http://localhost:3000",
+        "http://localhost:3001", 
+        "https://referral-hub-frontend.vercel.app",
+        "https://referral-hub-frontend.vercel.app/",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+        "https://*.vercel.app",
+        "https://*.netlify.app"
+      ];
     
-    if (allowedOrigins.indexOf(origin) !== -1) {
+    // Check if origin matches any allowed pattern
+    const isAllowed = allowedOrigins.some(allowedOrigin => {
+      if (allowedOrigin.includes('*')) {
+        const pattern = allowedOrigin.replace('*', '.*');
+        const regex = new RegExp(`^${pattern}$`);
+        return regex.test(origin);
+      }
+      return allowedOrigin === origin;
+    });
+    
+    if (isAllowed) {
       callback(null, true);
     } else {
       console.log('CORS blocked origin:', origin);
+      console.log('Allowed origins:', allowedOrigins);
       callback(new Error('Not allowed by CORS'));
     }
   },

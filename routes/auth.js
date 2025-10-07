@@ -528,12 +528,16 @@ router.post('/register', async (req, res) => {
 router.post('/login', async (req, res) => {
   try {
     console.log('=== LOGIN ENDPOINT HIT ===');
+    console.log('Request headers:', req.headers);
     console.log('Request body:', req.body);
+    console.log('Request origin:', req.headers.origin);
+    console.log('Request user-agent:', req.headers['user-agent']);
     
     // Validate required fields
     const { email, password, platform, device, browser, userAgent, screenSize, coordinates } = req.body;
     
     if (!email || !password) {
+      console.log('Validation failed - missing required fields:', { email: !!email, password: !!password });
       return res.status(400).json({ 
         message: 'Email and password are required',
         errors: {
@@ -1027,7 +1031,13 @@ router.get('/health', async (req, res) => {
         NODE_ENV: process.env.NODE_ENV || 'undefined',
         JWT_SECRET_SET: !!process.env.JWT_SECRET,
         SIGNUP_MINIMAL: SIGNUP_MINIMAL,
-        MONGODB_URI_SET: !!process.env.MONGODB_URI
+        MONGODB_URI_SET: !!process.env.MONGODB_URI,
+        CORS_ORIGINS: process.env.CORS_ORIGINS || 'not set'
+      },
+      server: {
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
+        version: process.version
       },
       timestamp: new Date().toISOString()
     });
