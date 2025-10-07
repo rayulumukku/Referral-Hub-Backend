@@ -876,6 +876,7 @@ router.post('/seed-demo-users', async (req, res) => {
 
     // Delete existing demo users if they exist
     await User.deleteMany({ email: { $in: ['premium@demo.com', 'superpremium@demo.com'] } });
+    console.log('Deleted existing demo users');
 
     const demoUsers = [];
 
@@ -1057,6 +1058,108 @@ router.post('/test', (req, res) => {
     headers: req.headers,
     body: req.body
   });
+});
+
+// Debug login endpoint
+router.post('/debug-login', async (req, res) => {
+  try {
+    console.log('=== DEBUG LOGIN ENDPOINT HIT ===');
+    console.log('Request body:', req.body);
+    
+    const { email, password } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ 
+        message: 'Email and password are required',
+        email: !!email,
+        password: !!password
+      });
+    }
+    
+    // Find user
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    console.log('User found:', !!user);
+    
+    if (!user) {
+      return res.status(400).json({ 
+        message: 'User not found',
+        email: email
+      });
+    }
+    
+    // Check password
+    const isMatch = await bcrypt.compare(password, user.password);
+    console.log('Password match:', isMatch);
+    
+    if (!isMatch) {
+      return res.status(400).json({ 
+        message: 'Invalid password',
+        email: email
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'Login successful',
+      user: {
+        email: user.email,
+        username: user.username,
+        type: user.type
+      }
+    });
+    
+  } catch (error) {
+    console.error('Debug login error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// Simple login endpoint - bypasses all complex validation
+router.post('/simple-login', async (req, res) => {
+  try {
+    console.log('=== SIMPLE LOGIN ENDPOINT HIT ===');
+    const { email, password } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password required' });
+    }
+    
+    // Find user
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    if (!user) {
+      return res.status(400).json({ message: 'User not found' });
+    }
+    
+    // Check password
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: 'Invalid password' });
+    }
+    
+    // Generate token
+    const jwt = require('jsonwebtoken');
+    const token = jwt.sign(
+      { id: user._id, email: user.email, type: user.type },
+      process.env.JWT_SECRET || 'fallback-secret',
+      { expiresIn: '7d' }
+    );
+    
+    res.json({
+      success: true,
+      token: token,
+      user: {
+        id: user._id,
+        email: user.email,
+        username: user.username,
+        type: user.type,
+        credits: user.credits
+      }
+    });
+    
+  } catch (error) {
+    console.error('Simple login error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
 });
 
 module.exports = router;
