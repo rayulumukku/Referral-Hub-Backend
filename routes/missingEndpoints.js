@@ -38,10 +38,36 @@ router.get('/posts/user-posts', auth, async (req, res) => {
 router.get('/referrals/user-referrals', auth, async (req, res) => {
   try {
     const referrals = await Referral.find({ referrer: req.user.id })
-      .populate('post', 'title description')
+      .populate('post', 'title description creator')
       .populate('referee', 'username email')
       .sort({ createdAt: -1 });
-    res.json(referrals);
+    
+    // Get referral analytics
+    const analytics = {
+      totalReferrals: referrals.length,
+      totalClicks: referrals.reduce((sum, r) => sum + (r.engagement?.totalClicks || 0), 0),
+      totalShares: referrals.reduce((sum, r) => sum + (r.engagement?.shares || 0), 0),
+      conversions: referrals.filter(r => r.conversion?.converted).length,
+      platforms: {},
+      locations: {},
+      devices: {}
+    };
+
+    // Process analytics data
+    referrals.forEach(ref => {
+      if (ref.platform) {
+        analytics.platforms[ref.platform] = (analytics.platforms[ref.platform] || 0) + 1;
+      }
+      if (ref.location?.city) {
+        const key = `${ref.location.city}, ${ref.location.state || ref.location.country}`;
+        analytics.locations[key] = (analytics.locations[key] || 0) + 1;
+      }
+      if (ref.device) {
+        analytics.devices[ref.device] = (analytics.devices[ref.device] || 0) + 1;
+      }
+    });
+
+    res.json({ referrals, analytics });
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
   }
@@ -82,6 +108,18 @@ router.get('/notifications/user-notifications', auth, async (req, res) => {
       .limit(50);
     res.json(notifications);
   } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Expert dashboard endpoint
+router.get('/analytics/expert-dashboard', auth, async (req, res) => {
+  try {
+    const ExpertAnalyticsService = require('../services/expertAnalyticsService');
+    const dashboardData = await ExpertAnalyticsService.getRealTimeDashboard(req.user.id);
+    res.json(dashboardData);
+  } catch (error) {
+    console.error('Error getting expert dashboard:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

@@ -97,6 +97,38 @@ class TrackingService {
 
       await referral.save();
 
+      // Emit real-time updates
+      const io = require('../server').getIo();
+      if (io) {
+        // Emit to post creator
+        io.to(`user_${post.creator._id}`).emit('referral_update', {
+          type: 'new_referral',
+          postId,
+          referralId: referral._id,
+          referrer: referrer.username,
+          platform,
+          location: toLocation,
+          timestamp: new Date()
+        });
+
+        // Emit to referrer
+        io.to(`user_${referrerId}`).emit('referral_update', {
+          type: 'referral_click',
+          postId,
+          referralId: referral._id,
+          platform,
+          location: toLocation,
+          timestamp: new Date()
+        });
+
+        // Emit global analytics update
+        io.emit('global_analytics_update', {
+          type: 'new_referral',
+          postId,
+          timestamp: new Date()
+        });
+      }
+
       // Update post analytics
       await this.updatePostAnalytics(postId, referral);
 

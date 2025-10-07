@@ -234,6 +234,8 @@ app.use('/api/link-previews', require('./routes/linkPreviews'));
 app.use('/api/tracking', require('./routes/tracking'));
 app.use('/api/gamification', require('./routes/gamification'));
 app.use('/api', require('./routes/missingEndpoints'));
+app.use('/api/referral-tracking', require('./routes/referralTracking'));
+app.use('/api/analytics', require('./routes/expertAnalytics'));
 console.log('All routes loaded');
 
 // Global error handling middleware

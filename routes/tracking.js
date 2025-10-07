@@ -4,6 +4,7 @@ const TrackingEvent = require('../models/TrackingEvent');
 const Post = require('../models/Post');
 const User = require('../models/User');
 const auth = require('../middleware/auth');
+const ComprehensiveTrackingService = require('../services/comprehensiveTrackingService');
 
 // Bulk tracking endpoint
 router.post('/bulk', async (req, res) => {
@@ -203,5 +204,17 @@ function getGeoData(req) {
     // Add geo data here when implementing geo-IP service
   };
 }
+
+// Comprehensive tracking endpoint
+router.get('/comprehensive/:postId', auth, async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const analytics = await ComprehensiveTrackingService.getComprehensiveAnalytics(req.user.id, 24);
+    res.json(analytics);
+  } catch (error) {
+    console.error('Error getting comprehensive tracking:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
 
 module.exports = router;
