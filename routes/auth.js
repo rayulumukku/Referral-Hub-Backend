@@ -1046,4 +1046,17 @@ router.get('/health', async (req, res) => {
   }
 });
 
+// Test endpoint for debugging
+router.post('/test', (req, res) => {
+  console.log('=== TEST ENDPOINT HIT ===');
+  console.log('Headers:', req.headers);
+  console.log('Body:', req.body);
+  res.json({ 
+    success: true, 
+    message: 'Test endpoint working',
+    headers: req.headers,
+    body: req.body
+  });
+});
+
 module.exports = router;
