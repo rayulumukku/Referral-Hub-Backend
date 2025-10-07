@@ -124,6 +124,298 @@ router.get('/analytics/expert-dashboard', auth, async (req, res) => {
   }
 });
 
+// REAL-TIME DASHBOARD ENDPOINT - NO MORE EMPTY FIELDS!
+router.get('/analytics/real-time-dashboard', auth, async (req, res) => {
+  try {
+    const RealTimeAnalyticsService = require('../services/realTimeAnalyticsService');
+    const dashboardData = await RealTimeAnalyticsService.getRealTimeDashboard(req.user.id);
+    
+    // Emit real-time update
+    const io = require('../server').getIo();
+    if (io) {
+      io.to(`user_${req.user.id}`).emit('dashboard_update', {
+        type: 'dashboard_updated',
+        userId: req.user.id,
+        timestamp: new Date()
+      });
+    }
+    
+    res.json(dashboardData);
+  } catch (error) {
+    console.error('Error getting real-time dashboard:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// MISSING ANALYTICS ENDPOINTS - CREATING ALL OF THEM NOW!
+
+// User activities endpoint
+router.get('/analytics/activities/:userId', auth, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const Activity = require('../models/Activity');
+    
+    const activities = await Activity.find({ user: userId })
+      .populate('post', 'title')
+      .populate('referral', 'referrer')
+      .sort({ createdAt: -1 })
+      .limit(50);
+    
+    // Emit real-time update
+    const io = require('../server').getIo();
+    if (io) {
+      io.to(`user_${userId}`).emit('activities_update', {
+        type: 'activities_updated',
+        userId,
+        count: activities.length,
+        timestamp: new Date()
+      });
+    }
+    
+    res.json(activities);
+  } catch (error) {
+    console.error('Error fetching activities:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// User network analytics
+router.get('/analytics/network/:userId', auth, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const Referral = require('../models/Referral');
+    
+    // Get network levels
+    const level1 = await Referral.countDocuments({ referrer: userId });
+    const level2 = await Referral.countDocuments({ 
+      referrer: { $in: await Referral.distinct('referee', { referrer: userId }) }
+    });
+    const level3 = await Referral.countDocuments({ 
+      referrer: { $in: await Referral.distinct('referee', { 
+        referrer: { $in: await Referral.distinct('referee', { referrer: userId }) }
+      })}
+    });
+    
+    const networkData = {
+      level1,
+      level2,
+      level3,
+      total: level1 + level2 + level3
+    };
+    
+    // Emit real-time update
+    const io = require('../server').getIo();
+    if (io) {
+      io.to(`user_${userId}`).emit('network_update', {
+        type: 'network_updated',
+        userId,
+        data: networkData,
+        timestamp: new Date()
+      });
+    }
+    
+    res.json(networkData);
+  } catch (error) {
+    console.error('Error fetching network:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// User referrals analytics
+router.get('/analytics/referrals/:userId', auth, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const Referral = require('../models/Referral');
+    
+    const referrals = await Referral.find({ referrer: userId })
+      .populate('post', 'title category price')
+      .populate('referee', 'username email')
+      .sort({ createdAt: -1 });
+    
+    // Emit real-time update
+    const io = require('../server').getIo();
+    if (io) {
+      io.to(`user_${userId}`).emit('referrals_update', {
+        type: 'referrals_updated',
+        userId,
+        count: referrals.length,
+        timestamp: new Date()
+      });
+    }
+    
+    res.json(referrals);
+  } catch (error) {
+    console.error('Error fetching referrals:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// User commissions analytics
+router.get('/analytics/commissions/:userId', auth, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const Commission = require('../models/Commission');
+    
+    const commissions = await Commission.find({ recipient: userId })
+      .populate('post', 'title category')
+      .populate('referral', 'referee')
+      .sort({ createdAt: -1 });
+    
+    // Emit real-time update
+    const io = require('../server').getIo();
+    if (io) {
+      io.to(`user_${userId}`).emit('commissions_update', {
+        type: 'commissions_updated',
+        userId,
+        count: commissions.length,
+        totalAmount: commissions.reduce((sum, c) => sum + (c.amount || 0), 0),
+        timestamp: new Date()
+      });
+    }
+    
+    res.json(commissions);
+  } catch (error) {
+    console.error('Error fetching commissions:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Global analytics endpoint
+router.get('/analytics/global', auth, async (req, res) => {
+  try {
+    const Post = require('../models/Post');
+    const User = require('../models/User');
+    const Referral = require('../models/Referral');
+    const Commission = require('../models/Commission');
+    
+    const [
+      totalPosts,
+      totalUsers,
+      totalReferrals,
+      totalCommissions,
+      recentActivity
+    ] = await Promise.all([
+      Post.countDocuments(),
+      User.countDocuments(),
+      Referral.countDocuments(),
+      Commission.countDocuments(),
+      Referral.find().populate('post', 'title').populate('referrer', 'username').sort({ createdAt: -1 }).limit(10)
+    ]);
+    
+    res.json({
+      totalPosts,
+      totalUsers,
+      totalReferrals,
+      totalCommissions,
+      recentActivity
+    });
+  } catch (error) {
+    console.error('Error fetching global analytics:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// User posts endpoint
+router.get('/posts/my', auth, async (req, res) => {
+  try {
+    const Post = require('../models/Post');
+    const posts = await Post.find({ creator: req.user.id })
+      .sort({ createdAt: -1 });
+    
+    res.json(posts);
+  } catch (error) {
+    console.error('Error fetching user posts:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Debug posts endpoint for admin
+router.get('/posts/debug', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+    
+    const Post = require('../models/Post');
+    const allPosts = await Post.find()
+      .populate('creator', 'username email')
+      .sort({ createdAt: -1 });
+    
+    res.json({ allPosts });
+  } catch (error) {
+    console.error('Error fetching debug posts:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Post-specific analytics endpoint
+router.get('/analytics/post/:postId', auth, async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const userId = req.user.id;
+    
+    const Post = require('../models/Post');
+    const Referral = require('../models/Referral');
+    const Commission = require('../models/Commission');
+    
+    const post = await Post.findById(postId).populate('creator');
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found' });
+    }
+    
+    const referrals = await Referral.find({ post: postId })
+      .populate('referee', 'username email')
+      .sort({ createdAt: -1 });
+    
+    const commissions = await Commission.find({ post: postId })
+      .populate('recipient', 'username')
+      .sort({ createdAt: -1 });
+    
+    const analytics = {
+      post: {
+        id: post._id,
+        title: post.title,
+        category: post.category,
+        price: post.price,
+        status: post.status,
+        createdAt: post.createdAt
+      },
+      referrals: {
+        total: referrals.length,
+        today: referrals.filter(r => {
+          const today = new Date();
+          const refDate = new Date(r.createdAt);
+          return refDate.toDateString() === today.toDateString();
+        }).length,
+        platformStats: referrals.reduce((acc, ref) => {
+          const platform = ref.platform || 'unknown';
+          acc[platform] = (acc[platform] || 0) + 1;
+          return acc;
+        }, {}),
+        deviceStats: referrals.reduce((acc, ref) => {
+          const device = ref.device || 'unknown';
+          acc[device] = (acc[device] || 0) + 1;
+          return acc;
+        }, {}),
+        referrals: referrals.slice(0, 20)
+      },
+      commissions: {
+        total: commissions.length,
+        totalAmount: commissions.reduce((sum, c) => sum + (c.amount || 0), 0),
+        pendingAmount: commissions
+          .filter(c => c.status === 'pending')
+          .reduce((sum, c) => sum + (c.amount || 0), 0),
+        commissions: commissions.slice(0, 20)
+      }
+    };
+    
+    res.json(analytics);
+  } catch (error) {
+    console.error('Error fetching post analytics:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Comprehensive analytics endpoint
 router.get('/analytics/comprehensive', auth, async (req, res) => {
   try {

@@ -97,6 +97,10 @@ class TrackingService {
 
       await referral.save();
 
+      // Emit real-time updates using the comprehensive service
+      const RealTimeAnalyticsService = require('./realTimeAnalyticsService');
+      await RealTimeAnalyticsService.onNewReferral(referral._id);
+
       // Emit real-time updates
       const io = require('../server').getIo();
       if (io) {

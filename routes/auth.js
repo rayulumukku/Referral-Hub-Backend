@@ -171,8 +171,6 @@ router.post('/register', async (req, res) => {
     let referralRecord = null;
     let parentReferral = null;
 
-    // Temporarily disable referral processing for debugging
-    /*
     if (referralId) {
       // Handle referral link with referralId
       const Referral = require('../models/Referral');
@@ -257,7 +255,6 @@ router.post('/register', async (req, res) => {
         // Skip referral processing for invalid ID
       }
     }
-    */
 
     console.log('Creating user with data:', { email: normalizedEmail, username: normalizedUsername, type: normalizedType, minimal: SIGNUP_MINIMAL });
 
