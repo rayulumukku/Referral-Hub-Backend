@@ -393,6 +393,21 @@ router.post('/interaction', async (req, res) => {
   }
 });
 
+// GET interaction endpoint for frontend compatibility
+router.get('/interaction', async (req, res) => {
+  try {
+    // Return basic interaction data or empty response
+    res.json({
+      success: true,
+      message: 'Interaction endpoint available',
+      interactions: []
+    });
+  } catch (error) {
+    console.error('GET interaction error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Track share action
 router.post('/share', async (req, res) => {
   try {

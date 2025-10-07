@@ -214,6 +214,7 @@ io.on('connection', (socket) => {
 const authRouter = require('./routes/auth');
 authRouter.setIoInstance(io); // Pass io instance to auth router
 app.use('/api/auth', authRouter);
+app.use('/auth', authRouter); // Also support /auth routes for compatibility
 const postsRouter = require('./routes/posts');
 postsRouter.setIoInstance(io); // Pass io instance to posts router
 app.use('/api/posts', postsRouter);
