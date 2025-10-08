@@ -20,7 +20,8 @@ const notificationSchema = new mongoose.Schema({
       'admin_message',
       'milestone_achieved',
       'level_up',
-      'badge_earned'
+      'badge_earned',
+      'engagement_reminder'
     ],
     required: true,
   },
