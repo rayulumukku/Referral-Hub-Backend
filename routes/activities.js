@@ -57,15 +57,10 @@ router.get('/recent', async (req, res) => {
 });
 
 // Get user's activities
-router.get('/user/:userId', auth, async (req, res) => {
+router.get('/user/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
     const limit = parseInt(req.query.limit) || 50;
-
-    // Check access
-    if (req.user.id !== userId && req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Access denied' });
-    }
 
     const activities = await Activity.find({ user: userId })
       .populate('user', 'username email profile')

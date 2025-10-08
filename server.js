@@ -285,6 +285,9 @@ app.use('/api/commissions', require('./routes/commissions'));
 app.use('/api/activities', require('./routes/activities'));
 app.use('/api/post-analytics-detail', require('./routes/postAnalyticsDetail'));
 
+// REMOVE DUPLICATE - Only one dashboard route
+// app.use('/api/dashboard', require('./routes/realDashboardStats'));
+
 console.log('All routes loaded');
 
 // Enhanced error handling middleware

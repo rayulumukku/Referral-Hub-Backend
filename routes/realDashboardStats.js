@@ -8,9 +8,17 @@ const Commission = require('../models/Commission');
 const auth = require('../middleware/auth');
 
 // Get REAL dashboard stats for a user
-router.get('/user-stats', auth, async (req, res) => {
+router.get('/user-stats', async (req, res) => {
   try {
-    const userId = req.user.id;
+    // Get userId from token
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) {
+      return res.status(401).json({ success: false, message: 'No token' });
+    }
+    
+    const jwt = require('jsonwebtoken');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const userId = decoded.id;
 
     // Get user's posts
     const userPosts = await Post.find({ creator: userId });
