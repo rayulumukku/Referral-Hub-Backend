@@ -285,6 +285,149 @@ app.use('/api/commissions', require('./routes/commissions'));
 app.use('/api/activities', require('./routes/activities'));
 app.use('/api/post-analytics-detail', require('./routes/postAnalyticsDetail'));
 
+// TEMPORARY FIX: Add missing routes directly to server.js
+// Dashboard user stats endpoint
+app.get('/api/dashboard/user-stats', async (req, res) => {
+  try {
+    const auth = require('./middleware/auth');
+    await new Promise((resolve, reject) => {
+      auth(req, res, (err) => err ? reject(err) : resolve());
+    });
+
+    const User = require('./models/User');
+    const Post = require('./models/Post');
+    const ReferralChain = require('./models/ReferralChain');
+    const Referral = require('./models/Referral');
+    const Commission = require('./models/Commission');
+
+    const userId = req.user.id;
+
+    // Get user's posts
+    const userPosts = await Post.find({ creator: userId });
+    const postIds = userPosts.map(p => p._id);
+
+    // Calculate stats
+    const stats = {
+      totalPosts: userPosts.length,
+      totalViews: userPosts.reduce((sum, post) => sum + (post.analytics?.views || 0), 0),
+      totalShares: userPosts.reduce((sum, post) => sum + (post.analytics?.shares || 0), 0),
+      totalConversions: userPosts.reduce((sum, post) => sum + (post.conversions || 0), 0),
+      chainsAsOriginalSharer: await ReferralChain.countDocuments({ originalSharer: userId }),
+      chainsAsParticipant: await ReferralChain.countDocuments({ 'chain.userId': userId }),
+      totalPeopleReferred: await ReferralChain.aggregate([
+        { $match: { originalSharer: userId } },
+        { $project: { chainLength: { $size: '$chain' } } },
+        { $group: { _id: null, total: { $sum: '$chainLength' } } }
+      ]),
+      totalReferrals: await Referral.countDocuments({ referrer: userId }),
+      totalCommissionEarnings: await Commission.aggregate([
+        { $match: { recipient: userId } },
+        { $group: { _id: null, totalEarned: { $sum: '$amount' } } }
+      ]).then(result => result[0]?.totalEarned || 0),
+      totalCommissions: await Commission.countDocuments({ recipient: userId }),
+      recentPosts: await Post.find({ creator: userId })
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .select('title createdAt analytics conversions status photos category price originalPrice'),
+      platformStats: {
+        totalUsers: await User.countDocuments(),
+        totalPosts: await Post.countDocuments(),
+        totalChains: await ReferralChain.countDocuments()
+      }
+    };
+
+    stats.totalPeopleReferred = stats.totalPeopleReferred[0]?.total || 0;
+    stats.conversionRate = stats.totalViews > 0
+      ? ((stats.totalConversions / stats.totalViews) * 100).toFixed(2)
+      : '0.00';
+
+    res.json({
+      success: true,
+      stats,
+      message: 'Dashboard stats from server.js',
+      timestamp: new Date()
+    });
+  } catch (error) {
+    console.error('Dashboard error:', error);
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+});
+
+// Activities user endpoint
+app.get('/api/activities/user/:userId', async (req, res) => {
+  try {
+    const auth = require('./middleware/auth');
+    await new Promise((resolve, reject) => {
+      auth(req, res, (err) => err ? reject(err) : resolve());
+    });
+
+    const { userId } = req.params;
+    const limit = parseInt(req.query.limit) || 50;
+
+    const Activity = require('./models/Activity');
+    const activities = await Activity.find({ user: userId })
+      .populate('user', 'username email profile')
+      .populate('targetUser', 'username email')
+      .populate('post', 'title category')
+      .sort({ createdAt: -1 })
+      .limit(limit);
+
+    const formatted = activities.map(activity => ({
+      _id: activity._id,
+      type: activity.type,
+      message: activity.message,
+      user: {
+        id: activity.user?._id,
+        username: activity.user?.username,
+        name: activity.user?.profile?.name
+      },
+      targetUser: activity.targetUser ? {
+        id: activity.targetUser._id,
+        username: activity.targetUser.username
+      } : null,
+      post: activity.post ? {
+        id: activity.post._id,
+        title: activity.post.title,
+        category: activity.post.category
+      } : null,
+      metadata: activity.metadata || {},
+      details: activity.details || {},
+      timestamp: activity.createdAt,
+      timeAgo: getTimeAgo(activity.createdAt)
+    }));
+
+    res.json({
+      success: true,
+      activities: formatted,
+      count: formatted.length
+    });
+  } catch (error) {
+    console.error('Activities error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching activities',
+      error: error.message,
+      activities: []
+    });
+  }
+});
+
+// Helper function for time ago
+function getTimeAgo(date) {
+  const now = new Date();
+  const diff = now - new Date(date);
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (seconds < 60) return 'Just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+  return new Date(date).toLocaleDateString();
+}
+
 // REMOVE DUPLICATE - Only one dashboard route
 // app.use('/api/dashboard', require('./routes/realDashboardStats'));
 
