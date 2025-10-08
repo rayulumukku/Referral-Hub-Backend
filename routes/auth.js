@@ -172,7 +172,26 @@ router.post('/register', async (req, res) => {
     let parentReferral = null;
 
     if (referralId) {
-      // Handle referral link with referralId
+      // Handle referral link with referralId - use enhanced tracking
+      const EnhancedReferralTrackingService = require('../services/enhancedReferralTrackingService');
+      try {
+        // For now, we'll extract referrer from the referralId or use a default approach
+        // In a real implementation, you'd store the referrer info in the referralId
+        console.log('Processing referral registration with ID:', referralId);
+        
+        // You can decode referrer info from referralId or query the database
+        // For this example, we'll use a simple approach
+        if (referralId.includes('user_')) {
+          referrerId = referralId.split('user_')[1];
+        }
+      } catch (error) {
+        console.error('Invalid referralId:', referralId, error);
+        // Skip referral processing for invalid ID
+      }
+    }
+
+    if (referralId && !referrerId) {
+      // Fallback to original referral handling
       const Referral = require('../models/Referral');
       try {
         parentReferral = await Referral.findById(referralId);
@@ -385,6 +404,37 @@ router.post('/register', async (req, res) => {
           console.error('Error updating referrer network:', updateError);
           // Don't fail registration if this fails
         }
+      }
+    }
+
+    // Enhanced referral tracking for new user registration
+    if (referrerId && postId) {
+      try {
+        const EnhancedReferralTrackingService = require('../services/enhancedReferralTrackingService');
+        await EnhancedReferralTrackingService.trackRegistration({
+          postId,
+          newUserId: user._id,
+          referrerId,
+          platform: platform || 'web',
+          device: device || 'desktop',
+          browser: browser || req.headers['user-agent']?.split(' ')[0] || 'Unknown',
+          location: coordinates ? {
+            city: coordinates.city,
+            state: coordinates.state,
+            country: coordinates.country
+          } : null,
+          coordinates: coordinates ? {
+            lat: coordinates.latitude,
+            lng: coordinates.longitude
+          } : null,
+          ipAddress: req.ip,
+          userAgent: userAgent || req.headers['user-agent'] || 'Unknown',
+          parentReferralId: referralId
+        });
+        console.log('Enhanced referral tracking completed for new user');
+      } catch (enhancedError) {
+        console.error('Error in enhanced referral tracking:', enhancedError);
+        // Don't fail registration if enhanced tracking fails
       }
     }
 

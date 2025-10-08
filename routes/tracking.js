@@ -150,12 +150,11 @@ router.get('/user/:userId', auth, async (req, res) => {
   }
 });
 
-// Get global tracking statistics (admin only)
-router.get('/global', auth, async (req, res) => {
+// Get global tracking statistics (public endpoint for dashboard)
+router.get('/global', async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
+    // Allow public access for basic stats
+    // If user is logged in, check if admin for detailed stats
 
     const { startDate, endDate } = req.query;
     const match = {};

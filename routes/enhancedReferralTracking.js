@@ -1,170 +1,122 @@
 const express = require('express');
-const router = express.Router();
-const Referral = require('../models/Referral');
-const Post = require('../models/Post');
-const User = require('../models/User');
-const Activity = require('../models/Activity');
-const Notification = require('../models/Notification');
+const ComprehensiveReferralTrackingService = require('../services/comprehensiveReferralTrackingService');
+const EnhancedCommissionService = require('../services/enhancedCommissionService');
+const auth = require('../middleware/auth');
 
-// Enhanced referral tracking that ensures EVERY person who receives a post is tracked
-router.post('/track-share', async (req, res) => {
+const router = express.Router();
+
+// Get io instance from server.js
+let io;
+const setIoInstance = (ioInstance) => {
+  io = ioInstance;
+};
+
+// Attach setIoInstance to router
+router.setIoInstance = setIoInstance;
+
+/**
+ * Track referral click with comprehensive analytics
+ * POST /api/enhanced-referrals/track
+ */
+router.post('/track', async (req, res) => {
   try {
     const {
       postId,
-      fromUserId, // Person who shared
-      toUserId, // Person who received (if they have account)
-      toEmail, // Email of person who received
-      platform, // WhatsApp, LinkedIn, etc.
+      referrerId,
+      refereeId,
+      platform,
       device,
       browser,
+      userAgent,
+      screenSize,
       coordinates,
-      location
+      ipAddress,
+      networkInfo,
+      sessionId,
+      language,
+      parentReferralId,
+      fromLocation,
+      toLocation,
+      interactionType,
+      duration,
+      scrollDepth
     } = req.body;
 
-    console.log('Enhanced referral tracking:', { postId, fromUserId, toUserId, toEmail, platform });
+    console.log('Enhanced referral tracking request:', { postId, referrerId, platform });
 
-    // Get post and referrer details
-    const post = await Post.findById(postId).populate('creator');
-    const fromUser = await User.findById(fromUserId);
-    
-    if (!post || !fromUser) {
-      return res.status(404).json({ message: 'Post or user not found' });
-    }
-
-    // Find or create the recipient user
-    let toUser = null;
-    if (toUserId) {
-      toUser = await User.findById(toUserId);
-    } else if (toEmail) {
-      toUser = await User.findOne({ email: toEmail.toLowerCase() });
-    }
-
-    // Create referral record for the share
-    const referral = new Referral({
-      post: postId,
-      referrer: fromUserId,
-      referee: toUser?._id || null,
-      level: 1, // Direct referral
-      platform: platform || 'web',
-      device: device || 'desktop',
-      browser: browser || 'unknown',
-      location: {
-        latitude: coordinates?.latitude,
-        longitude: coordinates?.longitude,
-        city: location?.city,
-        state: location?.state,
-        country: location?.country,
-        timezone: location?.timezone
-      },
+    const result = await ComprehensiveReferralTrackingService.trackReferralClick({
+      postId,
+      referrerId,
+      refereeId,
+      platform,
+      device,
+      browser,
+      userAgent,
+      screenSize,
       coordinates,
-      chainPosition: 1,
-      journey: {
-        from: {
-          userId: fromUserId,
-          username: fromUser.username,
-          location: fromUser.location || 'Unknown'
-        },
-        to: {
-          userId: toUser?._id || null,
-          email: toEmail,
-          location: location || 'Unknown'
-        },
-        platform: platform,
-        timestamp: new Date()
-      },
-      engagement: {
-        totalClicks: 0,
-        uniqueClicks: 0,
-        shares: 1,
-        interactions: [{
-          type: 'share',
-          timestamp: new Date(),
-          platform: platform
-        }]
-      },
-      status: 'shared'
+      ipAddress,
+      networkInfo,
+      sessionId,
+      language,
+      parentReferralId,
+      fromLocation,
+      toLocation,
+      interactionType,
+      duration,
+      scrollDepth
     });
-
-    await referral.save();
-
-    // Update post analytics
-    await Post.findByIdAndUpdate(postId, {
-      $inc: {
-        'analytics.shares': 1,
-        'analytics.totalShares': 1
-      }
-    });
-
-    // Create activity record
-    const activity = new Activity({
-      user: fromUserId,
-      type: 'referral_shared',
-      description: `Shared post "${post.title}" to ${toEmail || 'new user'} via ${platform}`,
-      metadata: {
-        postId,
-        platform,
-        recipientEmail: toEmail,
-        recipientUserId: toUser?._id
-      }
-    });
-    await activity.save();
-
-    // Create notification for post creator
-    const notification = new Notification({
-      user: post.creator._id,
-      type: 'referral_shared',
-      title: 'Post Shared!',
-      message: `${fromUser.username} shared your post "${post.title}" via ${platform}`,
-      metadata: {
-        postId,
-        referrerId: fromUserId,
-        platform
-      }
-    });
-    await notification.save();
 
     // Emit real-time updates
-    const io = require('../server').getIo();
     if (io) {
+      io.emit('enhanced_referral_update', {
+        type: 'new_referral_click',
+        postId,
+        chainId: result.chain.chainId,
+        referrerId,
+        platform,
+        device,
+        location: toLocation,
+        timestamp: new Date()
+      });
+
       // Emit to post creator
-      io.to(`user_${post.creator._id}`).emit('referral_update', {
-        type: 'post_shared',
-        postId,
-        referrer: fromUser.username,
-        platform,
-        timestamp: new Date()
-      });
-
-      // Emit to referrer
-      io.to(`user_${fromUserId}`).emit('referral_update', {
-        type: 'share_tracked',
-        postId,
-        platform,
-        timestamp: new Date()
-      });
-
-      // Emit global analytics update
-      io.emit('global_analytics_update', {
-        type: 'new_share',
-        postId,
-        timestamp: new Date()
-      });
+      const Post = require('../models/Post');
+      const post = await Post.findById(postId).populate('creator');
+      if (post && post.creator) {
+        io.to(`user_${post.creator._id}`).emit('post_analytics_update', {
+          postId,
+          type: 'enhanced_referral_click',
+          chainId: result.chain.chainId,
+          timestamp: new Date()
+        });
+      }
     }
 
-    res.json({
+    res.status(201).json({
       success: true,
-      referralId: referral._id,
-      message: 'Share tracked successfully'
+      referral: result.referral,
+      chain: {
+        chainId: result.chain.chainId,
+        length: result.chain.chain.length,
+        userPosition: result.chainMember.position
+      }
     });
 
   } catch (error) {
-    console.error('Error tracking share:', error);
-    res.status(500).json({ message: 'Error tracking share' });
+    console.error('Enhanced referral tracking error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Enhanced referral tracking failed',
+      error: error.message 
+    });
   }
 });
 
-// Track when someone clicks a referral link
-router.post('/track-click', async (req, res) => {
+/**
+ * Track share action
+ * POST /api/enhanced-referrals/share
+ */
+router.post('/share', async (req, res) => {
   try {
     const {
       postId,
@@ -173,173 +125,342 @@ router.post('/track-click', async (req, res) => {
       device,
       browser,
       coordinates,
-      location,
-      userAgent,
-      screenSize,
-      ipAddress
+      parentReferralId,
+      toLocation
     } = req.body;
 
-    console.log('Tracking referral click:', { postId, referrerId, platform });
-
-    // Get post and referrer details
-    const post = await Post.findById(postId).populate('creator');
-    const referrer = await User.findById(referrerId);
-    
-    if (!post || !referrer) {
-      return res.status(404).json({ message: 'Post or referrer not found' });
-    }
-
-    // Find existing referral record or create new one
-    let referral = await Referral.findOne({
-      post: postId,
-      referrer: referrerId,
-      status: 'shared'
+    const result = await ComprehensiveReferralTrackingService.trackShare({
+      postId,
+      referrerId,
+      platform,
+      device,
+      browser,
+      coordinates,
+      parentReferralId,
+      toLocation
     });
-
-    if (referral) {
-      // Update existing referral with click data
-      referral.engagement.totalClicks += 1;
-      referral.engagement.uniqueClicks += 1;
-      referral.engagement.interactions.push({
-        type: 'click',
-        timestamp: new Date(),
-        platform: platform
-      });
-      referral.status = 'clicked';
-      await referral.save();
-    } else {
-      // Create new referral record for the click
-      referral = new Referral({
-        post: postId,
-        referrer: referrerId,
-        level: 1,
-        platform: platform || 'web',
-        device: device || 'desktop',
-        browser: browser || 'unknown',
-        userAgent: userAgent,
-        screenSize: screenSize,
-        ipAddress: ipAddress,
-        location: {
-          latitude: coordinates?.latitude,
-          longitude: coordinates?.longitude,
-          city: location?.city,
-          state: location?.state,
-          country: location?.country,
-          timezone: location?.timezone
-        },
-        coordinates,
-        chainPosition: 1,
-        engagement: {
-          totalClicks: 1,
-          uniqueClicks: 1,
-          shares: 0,
-          interactions: [{
-            type: 'click',
-            timestamp: new Date(),
-            platform: platform
-          }]
-        },
-        status: 'clicked'
-      });
-      await referral.save();
-    }
-
-    // Update post analytics
-    await Post.findByIdAndUpdate(postId, {
-      $inc: {
-        'analytics.clicks': 1,
-        'analytics.totalClicks': 1
-      }
-    });
-
-    // Create activity record
-    const activity = new Activity({
-      user: referrerId,
-      type: 'referral_clicked',
-      description: `Someone clicked your referral link for post "${post.title}" via ${platform}`,
-      metadata: {
-        postId,
-        platform
-      }
-    });
-    await activity.save();
 
     // Emit real-time updates
-    const io = require('../server').getIo();
     if (io) {
-      // Emit to post creator
-      io.to(`user_${post.creator._id}`).emit('referral_update', {
-        type: 'referral_clicked',
+      io.emit('enhanced_referral_update', {
+        type: 'referral_share',
         postId,
-        referrer: referrer.username,
+        referrerId,
         platform,
-        timestamp: new Date()
-      });
-
-      // Emit to referrer
-      io.to(`user_${referrerId}`).emit('referral_update', {
-        type: 'click_tracked',
-        postId,
-        platform,
-        timestamp: new Date()
-      });
-
-      // Emit global analytics update
-      io.emit('global_analytics_update', {
-        type: 'new_click',
-        postId,
+        device,
+        location: toLocation,
         timestamp: new Date()
       });
     }
 
     res.json({
       success: true,
-      referralId: referral._id,
-      message: 'Click tracked successfully'
+      message: 'Share tracked successfully',
+      shares: result.shares
     });
 
   } catch (error) {
-    console.error('Error tracking click:', error);
-    res.status(500).json({ message: 'Error tracking click' });
+    console.error('Share tracking error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Share tracking failed',
+      error: error.message 
+    });
   }
 });
 
-// Get comprehensive referral analytics for a post
+/**
+ * Track user interaction
+ * POST /api/enhanced-referrals/interaction
+ */
+router.post('/interaction', async (req, res) => {
+  try {
+    const {
+      postId,
+      referrerId,
+      interactionType,
+      duration,
+      scrollDepth,
+      parentReferralId
+    } = req.body;
+
+    const result = await ComprehensiveReferralTrackingService.trackInteraction({
+      postId,
+      referrerId,
+      interactionType,
+      duration,
+      scrollDepth,
+      parentReferralId
+    });
+
+    res.json({
+      success: true,
+      message: 'Interaction tracked successfully'
+    });
+
+  } catch (error) {
+    console.error('Interaction tracking error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Interaction tracking failed',
+      error: error.message 
+    });
+  }
+});
+
+/**
+ * Get comprehensive analytics for a post
+ * GET /api/enhanced-referrals/analytics/:postId
+ */
 router.get('/analytics/:postId', async (req, res) => {
   try {
     const { postId } = req.params;
     
-    const referrals = await Referral.find({ post: postId })
-      .populate('referrer', 'username email')
-      .populate('referee', 'username email')
-      .sort({ createdAt: -1 });
+    const analytics = await ComprehensiveReferralTrackingService.getPostAnalytics(postId);
+    
+    res.json({
+      success: true,
+      analytics
+    });
 
-    const analytics = {
-      totalReferrals: referrals.length,
-      totalShares: referrals.filter(r => r.status === 'shared').length,
-      totalClicks: referrals.filter(r => r.status === 'clicked').length,
-      platformStats: referrals.reduce((acc, ref) => {
-        const platform = ref.platform || 'unknown';
-        acc[platform] = (acc[platform] || 0) + 1;
-        return acc;
-      }, {}),
-      deviceStats: referrals.reduce((acc, ref) => {
-        const device = ref.device || 'unknown';
-        acc[device] = (acc[device] || 0) + 1;
-        return acc;
-      }, {}),
-      locationStats: referrals.reduce((acc, ref) => {
-        const country = ref.location?.country || 'Unknown';
-        acc[country] = (acc[country] || 0) + 1;
-        return acc;
-      }, {}),
-      referrals: referrals.slice(0, 50) // Limit to 50 most recent
-    };
-
-    res.json(analytics);
   } catch (error) {
-    console.error('Error fetching referral analytics:', error);
-    res.status(500).json({ message: 'Error fetching analytics' });
+    console.error('Analytics retrieval error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Analytics retrieval failed',
+      error: error.message 
+    });
+  }
+});
+
+/**
+ * Get user's referral chain history
+ * GET /api/enhanced-referrals/user-chains/:userId
+ */
+router.get('/user-chains/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    const chains = await ComprehensiveReferralTrackingService.getUserReferralChains(userId);
+    
+    res.json({
+      success: true,
+      chains
+    });
+
+  } catch (error) {
+    console.error('User chains retrieval error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'User chains retrieval failed',
+      error: error.message 
+    });
+  }
+});
+
+/**
+ * Distribute commissions using enhanced system
+ * POST /api/enhanced-referrals/distribute-commissions
+ */
+router.post('/distribute-commissions', auth, async (req, res) => {
+  try {
+    const { postId, buyerUserId, soldPrice, soldAt } = req.body;
+
+    if (!postId || !soldPrice) {
+      return res.status(400).json({
+        success: false,
+        message: 'Post ID and sold price are required'
+      });
+    }
+
+    const result = await EnhancedCommissionService.distributeCommissions(
+      postId,
+      buyerUserId || req.user.id,
+      soldPrice,
+      soldAt || new Date()
+    );
+
+    // Emit real-time updates for commission distribution
+    if (io) {
+      io.emit('commission_distribution', {
+        type: 'commissions_distributed',
+        postId,
+        totalDistributed: result.totalDistributed,
+        chainsProcessed: result.chainsProcessed,
+        timestamp: new Date()
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Commissions distributed successfully',
+      result
+    });
+
+  } catch (error) {
+    console.error('Commission distribution error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Commission distribution failed',
+      error: error.message 
+    });
+  }
+});
+
+/**
+ * Get commission analytics for a post
+ * GET /api/enhanced-referrals/commission-analytics/:postId
+ */
+router.get('/commission-analytics/:postId', async (req, res) => {
+  try {
+    const { postId } = req.params;
+    
+    const analytics = await EnhancedCommissionService.getCommissionAnalytics(postId);
+    
+    res.json({
+      success: true,
+      analytics
+    });
+
+  } catch (error) {
+    console.error('Commission analytics error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Commission analytics retrieval failed',
+      error: error.message 
+    });
+  }
+});
+
+/**
+ * Get user's commission history
+ * GET /api/enhanced-referrals/user-commissions/:userId
+ */
+router.get('/user-commissions/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    const history = await EnhancedCommissionService.getUserCommissionHistory(userId);
+    
+    res.json({
+      success: true,
+      history
+    });
+
+  } catch (error) {
+    console.error('User commission history error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'User commission history retrieval failed',
+      error: error.message 
+    });
+  }
+});
+
+/**
+ * Get referral chain details
+ * GET /api/enhanced-referrals/chain/:chainId
+ */
+router.get('/chain/:chainId', async (req, res) => {
+  try {
+    const { chainId } = req.params;
+    
+    const ReferralChain = require('../models/ReferralChain');
+    const chain = await ReferralChain.findOne({ chainId })
+      .populate('post', 'title category price')
+      .populate('chain.userId', 'username email')
+      .populate('originalSharer', 'username email');
+
+    if (!chain) {
+      return res.status(404).json({
+        success: false,
+        message: 'Referral chain not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      chain: {
+        _id: chain._id,
+        chainId: chain.chainId,
+        post: chain.post,
+        originalSharer: chain.originalSharer,
+        chain: chain.chain.map(member => ({
+          userId: member.userId,
+          position: member.position,
+          platform: member.platform,
+          device: member.device,
+          clicks: member.clicks,
+          views: member.views,
+          shares: member.shares,
+          sharedAt: member.sharedAt,
+          engagement: member.engagement
+        })),
+        totalClicks: chain.totalClicks,
+        totalViews: chain.totalViews,
+        totalShares: chain.totalShares,
+        converted: chain.conversion.converted,
+        createdAt: chain.createdAt,
+        lastActivity: chain.lastActivity
+      }
+    });
+
+  } catch (error) {
+    console.error('Chain details error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Chain details retrieval failed',
+      error: error.message 
+    });
+  }
+});
+
+/**
+ * Get real-time analytics dashboard
+ * GET /api/enhanced-referrals/dashboard
+ */
+router.get('/dashboard', auth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // Get user's referral chains
+    const userChains = await ComprehensiveReferralTrackingService.getUserReferralChains(userId);
+    
+    // Get user's commission history
+    const commissionHistory = await EnhancedCommissionService.getUserCommissionHistory(userId);
+    
+    // Get user's posts analytics
+    const Post = require('../models/Post');
+    const userPosts = await Post.find({ creator: userId });
+    
+    const postsAnalytics = await Promise.all(
+      userPosts.map(async (post) => {
+        const analytics = await ComprehensiveReferralTrackingService.getPostAnalytics(post._id);
+        return {
+          postId: post._id,
+          title: post.title,
+          analytics
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      dashboard: {
+        userChains: userChains.slice(0, 10), // Latest 10 chains
+        commissionHistory: commissionHistory.commissions.slice(0, 10), // Latest 10 commissions
+        totalEarned: commissionHistory.totalEarned,
+        postsAnalytics: postsAnalytics.slice(0, 5) // Latest 5 posts
+      }
+    });
+
+  } catch (error) {
+    console.error('Dashboard error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Dashboard retrieval failed',
+      error: error.message 
+    });
   }
 });
 

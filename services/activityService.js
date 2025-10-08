@@ -1,7 +1,14 @@
 const Activity = require('../models/Activity');
 const User = require('../models/User');
 
+// Store Socket.IO instance
+let io;
+
 class ActivityService {
+  // Set Socket.IO instance
+  static setIoInstance(ioInstance) {
+    io = ioInstance;
+  }
   // Track user registration
   static async trackUserRegistration(userId, referrerId = null, metadata = {}) {
     try {
@@ -16,7 +23,7 @@ class ActivityService {
         }
       }
 
-      await Activity.create({
+      const activity = await Activity.create({
         type: 'user_registration',
         user: userId,
         targetUser: referrerId,
@@ -30,6 +37,25 @@ class ActivityService {
         },
         metadata
       });
+
+      // ✅ Real-time update - emit to all connected clients
+      if (io) {
+        io.emit('new_activity', {
+          type: 'user_registration',
+          message,
+          user: { id: userId, username: user.username },
+          timestamp: new Date()
+        });
+        
+        // Emit to referrer if exists
+        if (referrerId) {
+          io.to(`user_${referrerId}`).emit('notification', {
+            type: 'new_referral',
+            message: `${user.username} joined via your referral!`,
+            timestamp: new Date()
+          });
+        }
+      }
     } catch (error) {
       console.error('Error tracking user registration:', error);
     }
@@ -41,12 +67,22 @@ class ActivityService {
       const user = await User.findById(userId).select('username');
       if (!user) return;
 
-      await Activity.create({
+      const activity = await Activity.create({
         type: 'user_login',
         user: userId,
         message: `${user.username} logged into the platform`,
         metadata
       });
+
+      // ✅ Real-time update
+      if (io) {
+        io.emit('new_activity', {
+          type: 'user_login',
+          message: activity.message,
+          user: { id: userId, username: user.username },
+          timestamp: new Date()
+        });
+      }
     } catch (error) {
       console.error('Error tracking user login:', error);
     }
@@ -58,7 +94,7 @@ class ActivityService {
       const user = await User.findById(userId).select('username');
       if (!user) return;
 
-      await Activity.create({
+      const activity = await Activity.create({
         type: 'post_created',
         user: userId,
         post: postId,
@@ -74,6 +110,17 @@ class ActivityService {
           location: metadata.location
         }
       });
+
+      // ✅ Real-time update
+      if (io) {
+        io.emit('new_activity', {
+          type: 'post_created',
+          message: activity.message,
+          user: { id: userId, username: user.username },
+          post: { id: postId, title: postTitle },
+          timestamp: new Date()
+        });
+      }
     } catch (error) {
       console.error('Error tracking post creation:', error);
     }
@@ -86,7 +133,7 @@ class ActivityService {
       const post = await require('../models/Post').findById(postId).select('title');
       if (!user || !post) return;
 
-      await Activity.create({
+      const activity = await Activity.create({
         type: 'referral_shared',
         user: userId,
         post: postId,
@@ -97,6 +144,25 @@ class ActivityService {
         },
         metadata
       });
+
+      // ✅ Real-time update
+      if (io) {
+        io.emit('new_activity', {
+          type: 'referral_shared',
+          message: activity.message,
+          user: { id: userId, username: user.username },
+          post: { id: postId, title: post.title },
+          platform,
+          timestamp: new Date()
+        });
+        
+        // Emit to user who shared
+        io.to(`user_${userId}`).emit('share_confirmed', {
+          postId,
+          platform,
+          timestamp: new Date()
+        });
+      }
     } catch (error) {
       console.error('Error tracking referral shared:', error);
     }

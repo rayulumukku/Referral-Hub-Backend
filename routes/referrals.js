@@ -341,6 +341,35 @@ router.get('/chain/:userId', async (req, res) => {
   }
 });
 
+// Get user's referrals (for PostView and other pages)
+router.get('/user/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // Find all referrals for this user
+    const referrals = await Referral.find({
+      $or: [{ referrer: userId }, { referee: userId }]
+    }).populate('referrer', 'username email')
+      .populate('referee', 'username email')
+      .populate('post', 'title category')
+      .sort({ createdAt: -1 })
+      .limit(50);
+
+    res.json({
+      success: true,
+      referrals,
+      count: referrals.length
+    });
+  } catch (error) {
+    console.error('Referrals fetch error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error',
+      referrals: []
+    });
+  }
+});
+
 // Get comprehensive analytics for a post
 router.get('/analytics/:postId', async (req, res) => {
   try {

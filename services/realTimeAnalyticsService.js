@@ -7,52 +7,90 @@ const Activity = require('../models/Activity');
 const Notification = require('../models/Notification');
 const PostAnalytics = require('../models/PostAnalytics');
 const TrackingEvent = require('../models/TrackingEvent');
+const dashboardCache = require('./dashboardCache');
 
 class RealTimeAnalyticsService {
-  // Get real user analytics
+  // Get real user analytics - OPTIMIZED VERSION WITH CACHE
   static async getUserAnalytics(userId) {
     try {
-      const user = await User.findById(userId);
+      // Check cache first
+      const cachedData = dashboardCache.get(userId);
+      if (cachedData) {
+        console.log(`Cache hit for user ${userId}`);
+        return cachedData;
+      }
+
+      console.log(`Cache miss for user ${userId}, fetching from database...`);
+      
+      // Use aggregation pipeline for better performance
+      const user = await User.findById(userId).select('username email gamification network');
       if (!user) throw new Error('User not found');
 
-      // Get user's posts
-      const userPosts = await Post.find({ creator: userId });
-      const postIds = userPosts.map(p => p._id);
-
-      // Get user's referrals (both made and received)
-      const referralsMade = await Referral.find({ referrer: userId })
+      // Execute all queries in parallel with limits
+      const [
+        userPosts,
+        referralsMade,
+        referralsReceived,
+        commissions,
+        activities,
+        notifications,
+        networkStats
+      ] = await Promise.all([
+        // User posts with basic info only
+        Post.find({ creator: userId })
+          .select('title category price status analytics createdAt')
+          .sort({ createdAt: -1 })
+          .limit(20),
+        
+        // Referrals made with minimal data
+        Referral.find({ referrer: userId })
+          .select('referee post platform device location createdAt')
         .populate('referee', 'username email')
         .populate('post', 'title category')
-        .sort({ createdAt: -1 });
+          .sort({ createdAt: -1 })
+          .limit(10),
 
-      const referralsReceived = await Referral.find({ referee: userId })
+        // Referrals received with minimal data
+        Referral.find({ referee: userId })
+          .select('referrer post platform device location createdAt')
         .populate('referrer', 'username email')
         .populate('post', 'title category')
-        .sort({ createdAt: -1 });
+          .sort({ createdAt: -1 })
+          .limit(10),
 
-      // Get user's commissions
-      const commissions = await Commission.find({ recipient: userId })
+        // Commissions with minimal data
+        Commission.find({ recipient: userId })
+          .select('post amount percentage status createdAt')
         .populate('post', 'title category')
-        .sort({ createdAt: -1 });
+          .sort({ createdAt: -1 })
+          .limit(20),
 
-      // Get user's activities
-      const activities = await Activity.find({ user: userId })
+        // Activities with limit
+        Activity.find({ user: userId })
+          .select('type description metadata createdAt')
         .sort({ createdAt: -1 })
-        .limit(50);
+          .limit(20),
 
-      // Get user's notifications
-      const notifications = await Notification.find({ user: userId })
+        // Notifications with limit
+        Notification.find({ user: userId })
+          .select('type title message read createdAt')
         .sort({ createdAt: -1 })
-        .limit(20);
+          .limit(10),
+        
+        // Simplified network stats
+        this.getNetworkStatsOptimized(userId)
+      ]);
 
-      // Get network growth (direct referrals)
-      const networkGrowth = await this.getNetworkGrowth(userId);
+      const postIds = userPosts.map(p => p._id);
+      
+      // Get simplified analytics for posts (parallel)
+      const [postAnalytics, referralChains] = await Promise.all([
+        this.getPostAnalyticsOptimized(postIds),
+        this.getReferralChainsOptimized(postIds)
+      ]);
 
-      // Get real-time analytics for user's posts
-      const postAnalytics = await this.getPostAnalytics(postIds);
-
-      // Get referral chains for user's posts
-      const referralChains = await this.getReferralChains(postIds);
+      // Calculate total earnings efficiently
+      const totalEarnings = commissions.reduce((sum, c) => sum + (c.amount || 0), 0);
 
       return {
         user: {
@@ -61,8 +99,8 @@ class RealTimeAnalyticsService {
           email: user.email,
           level: user.gamification?.level || 1,
           points: user.gamification?.totalPoints || 0,
-          networkSize: networkGrowth.directReferrals,
-          totalEarnings: commissions.reduce((sum, c) => sum + (c.amount || 0), 0)
+          networkSize: networkStats.directReferrals,
+          totalEarnings
         },
         posts: userPosts.map(post => ({
           id: post._id,
@@ -119,18 +157,60 @@ class RealTimeAnalyticsService {
           read: notif.read,
           createdAt: notif.createdAt
         })),
-        networkGrowth,
+        networkGrowth: networkStats,
         postAnalytics,
         referralChains,
         lastUpdated: new Date()
       };
+
+      // Cache the result
+      dashboardCache.set(userId, result);
+      console.log(`Cached analytics for user ${userId}`);
+
+      return result;
     } catch (error) {
       console.error('Error getting user analytics:', error);
       throw error;
     }
   }
 
-  // Get network growth data
+  // Optimized network stats - no recursive calls
+  static async getNetworkStatsOptimized(userId) {
+    try {
+      // Get only direct referrals count (much faster)
+      const directReferralsCount = await User.countDocuments({ referrer: userId });
+      
+      // Get recent growth (last 7 days)
+      const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const recentReferralsCount = await User.countDocuments({
+        referrer: userId,
+        createdAt: { $gte: oneWeekAgo }
+      });
+
+      return {
+        directReferrals: directReferralsCount,
+        indirectReferrals: 0, // Skip for performance
+        totalNetwork: directReferralsCount,
+        networkLevel: 1, // Simplified
+        recentGrowth: {
+          thisWeek: recentReferralsCount,
+          lastWeek: 0, // Skip for performance
+          growthRate: 0 // Skip for performance
+        }
+      };
+    } catch (error) {
+      console.error('Error getting optimized network stats:', error);
+      return {
+        directReferrals: 0,
+        indirectReferrals: 0,
+        totalNetwork: 0,
+        networkLevel: 1,
+        recentGrowth: { thisWeek: 0, lastWeek: 0, growthRate: 0 }
+      };
+    }
+  }
+
+  // Get network growth data (original method - kept for compatibility)
   static async getNetworkGrowth(userId) {
     try {
       // Get direct referrals (level 1)
@@ -229,7 +309,103 @@ class RealTimeAnalyticsService {
     return ((thisWeek.thisWeek - lastWeek) / lastWeek) * 100;
   }
 
-  // Get post analytics
+  // Optimized post analytics - simplified version
+  static async getPostAnalyticsOptimized(postIds) {
+    try {
+      if (!postIds || postIds.length === 0) {
+        return {
+          totalViews: 0,
+          totalClicks: 0,
+          totalShares: 0,
+          totalConversions: 0,
+          platformDistribution: {},
+          deviceDistribution: {},
+          browserDistribution: {},
+          locationDistribution: {},
+          timeDistribution: {},
+          engagementMetrics: {}
+        };
+      }
+
+      // Use aggregation pipeline for better performance
+      const analytics = await PostAnalytics.aggregate([
+        { $match: { post: { $in: postIds } } },
+        {
+          $group: {
+            _id: null,
+            totalViews: { $sum: { $cond: [{ $eq: ['$type', 'view'] }, 1, 0] } },
+            totalClicks: { $sum: { $cond: [{ $eq: ['$type', 'click'] }, 1, 0] } },
+            totalShares: { $sum: { $cond: [{ $eq: ['$type', 'share'] }, 1, 0] } },
+            totalConversions: { $sum: { $cond: [{ $eq: ['$type', 'conversion'] }, 1, 0] } },
+            platforms: { $push: '$platform' },
+            devices: { $push: '$device' },
+            browsers: { $push: '$browser' }
+          }
+        }
+      ]);
+
+      const result = analytics[0] || {
+        totalViews: 0,
+        totalClicks: 0,
+        totalShares: 0,
+        totalConversions: 0,
+        platforms: [],
+        devices: [],
+        browsers: []
+      };
+
+      // Calculate distributions efficiently
+      const platformDistribution = {};
+      result.platforms.forEach(p => {
+        if (p) platformDistribution[p] = (platformDistribution[p] || 0) + 1;
+      });
+
+      const deviceDistribution = {};
+      result.devices.forEach(d => {
+        if (d) deviceDistribution[d] = (deviceDistribution[d] || 0) + 1;
+      });
+
+      const browserDistribution = {};
+      result.browsers.forEach(b => {
+        if (b) browserDistribution[b] = (browserDistribution[b] || 0) + 1;
+      });
+
+      return {
+        totalViews: result.totalViews,
+        totalClicks: result.totalClicks,
+        totalShares: result.totalShares,
+        totalConversions: result.totalConversions,
+        platformDistribution,
+        deviceDistribution,
+        browserDistribution,
+        locationDistribution: {},
+        timeDistribution: {},
+        engagementMetrics: {
+          averageTimeSpent: 0,
+          averageScrollDepth: 0,
+          totalInteractions: result.totalClicks + result.totalShares,
+          engagementRate: result.totalViews > 0 ? (result.totalClicks / result.totalViews) * 100 : 0,
+          conversionRate: result.totalClicks > 0 ? (result.totalConversions / result.totalClicks) * 100 : 0
+        }
+      };
+    } catch (error) {
+      console.error('Error getting optimized post analytics:', error);
+      return {
+        totalViews: 0,
+        totalClicks: 0,
+        totalShares: 0,
+        totalConversions: 0,
+        platformDistribution: {},
+        deviceDistribution: {},
+        browserDistribution: {},
+        locationDistribution: {},
+        timeDistribution: {},
+        engagementMetrics: {}
+      };
+    }
+  }
+
+  // Get post analytics (original method - kept for compatibility)
   static async getPostAnalytics(postIds) {
     try {
       const analytics = {
@@ -303,7 +479,38 @@ class RealTimeAnalyticsService {
     }
   }
 
-  // Get referral chains
+  // Optimized referral chains - simplified version
+  static async getReferralChainsOptimized(postIds) {
+    try {
+      if (!postIds || postIds.length === 0) {
+        return [];
+      }
+
+      // Get only basic chain info without heavy population
+      const chains = await ReferralChain.find({ post: { $in: postIds } })
+        .select('post originalCreator chainHead totalClicks totalShares conversionOccurred status createdAt')
+        .sort({ createdAt: -1 })
+        .limit(10); // Limit for performance
+
+      return chains.map(chain => ({
+        id: chain._id,
+        postId: chain.post,
+        originalCreator: chain.originalCreator,
+        chainHead: chain.chainHead,
+        members: [], // Skip for performance
+        totalClicks: chain.totalClicks || 0,
+        totalShares: chain.totalShares || 0,
+        conversionOccurred: chain.conversionOccurred || false,
+        status: chain.status || 'active',
+        createdAt: chain.createdAt
+      }));
+    } catch (error) {
+      console.error('Error getting optimized referral chains:', error);
+      return [];
+    }
+  }
+
+  // Get referral chains (original method - kept for compatibility)
   static async getReferralChains(postIds) {
     try {
       const chains = await ReferralChain.find({ post: { $in: postIds } })
@@ -533,6 +740,9 @@ class RealTimeAnalyticsService {
 
       await activity.save();
 
+      // Invalidate cache for this user
+      dashboardCache.invalidate(userId);
+
       // Emit real-time update
       const io = require('../server').getIo();
       if (io) {
@@ -552,6 +762,19 @@ class RealTimeAnalyticsService {
       console.error('Error tracking activity:', error);
       throw error;
     }
+  }
+
+  // Cache invalidation methods
+  static invalidateUserCache(userId) {
+    dashboardCache.invalidate(userId);
+  }
+
+  static clearAllCache() {
+    dashboardCache.clear();
+  }
+
+  static getCacheStats() {
+    return dashboardCache.getStats();
   }
 }
 

@@ -178,6 +178,16 @@ router.post('/', auth, async (req, res) => {
       userAgent: userAgent || req.headers['user-agent']
     });
 
+    // Initialize enhanced referral chain for this post
+    try {
+      const EnhancedReferralTrackingService = require('../services/enhancedReferralTrackingService');
+      await EnhancedReferralTrackingService.findOrCreateChain(post._id, req.user.id);
+      console.log('Enhanced referral chain initialized for post:', post._id);
+    } catch (chainError) {
+      console.error('Error initializing referral chain:', chainError);
+      // Don't fail post creation if chain initialization fails
+    }
+
     // Check for badge achievements
     await GamificationService.checkAndAwardBadges(req.user.id);
 

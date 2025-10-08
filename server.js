@@ -59,8 +59,14 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-// Handle preflight requests
-app.options('*', cors());
+// Handle preflight requests (Express 5 compatible)
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    cors()(req, res, next);
+  } else {
+    next();
+  }
+});
 
 // Additional CORS middleware for all requests
 app.use((req, res, next) => {
@@ -211,6 +217,14 @@ io.on('connection', (socket) => {
   });
 });
 
+// ✅ Pass io instance to ActivityService for real-time updates
+const ActivityService = require('./services/activityService');
+ActivityService.setIoInstance(io);
+
+// ✅ Pass io instance to ComprehensiveReferralChainService for real-time updates
+const ComprehensiveReferralChainService = require('./services/comprehensiveReferralChainService');
+ComprehensiveReferralChainService.setIoInstance(io);
+
 const authRouter = require('./routes/auth');
 authRouter.setIoInstance(io); // Pass io instance to auth router
 app.use('/api/auth', authRouter);
@@ -235,6 +249,10 @@ app.use('/api/link-previews', require('./routes/linkPreviews'));
 app.use('/api/tracking', require('./routes/tracking'));
 app.use('/api/gamification', require('./routes/gamification'));
 
+// Performance monitoring middleware
+const performanceMonitor = require('./middleware/performanceMonitor');
+app.use('/api', performanceMonitor);
+
 // Real-time tracking middleware
 const realTimeTracker = require('./middleware/realTimeTracker');
 app.use('/api', realTimeTracker);
@@ -243,60 +261,38 @@ app.use('/api', require('./routes/missingEndpoints'));
 app.use('/api/referral-tracking', require('./routes/referralTracking'));
 app.use('/api/analytics', require('./routes/expertAnalytics'));
 app.use('/api/complete', require('./routes/completeAnalytics'));
-app.use('/api/enhanced-referrals', require('./routes/enhancedReferralTracking'));
 app.use('/api/universal', require('./routes/universalData'));
 app.use('/api/ceo', require('./routes/ceoLevelData')); // CEO-LEVEL DATA
 app.use('/api/tree-commission', require('./routes/treeCommission')); // TREE COMMISSION SYSTEM
 app.use('/api/real-time-analytics', require('./routes/realTimeAnalytics')); // REAL-TIME ANALYTICS
+app.use('/api/enhanced-referrals', require('./routes/enhancedReferralTracking')); // ENHANCED REFERRAL TRACKING
+
+// COMPREHENSIVE REFERRAL CHAIN SYSTEM
+const comprehensiveReferralsRouter = require('./routes/comprehensiveReferrals');
+comprehensiveReferralsRouter.setIoInstance(io);
+app.use('/api/comprehensive-referrals', comprehensiveReferralsRouter);
+
+// CLEAR DATABASE & REAL STATS (Admin only)
+app.use('/api/admin/database', require('./routes/clearDatabase'));
+
+// REAL DASHBOARD STATS (for all users)
+app.use('/api/dashboard', require('./routes/realDashboardStats'));
+
+// COMMISSIONS ENDPOINT
+app.use('/api/commissions', require('./routes/commissions'));
+
+// ACTIVITIES ENDPOINT
+app.use('/api/activities', require('./routes/activities'));
+app.use('/api/post-analytics-detail', require('./routes/postAnalyticsDetail'));
+
 console.log('All routes loaded');
 
-// Global error handling middleware
-app.use((err, req, res, next) => {
-  console.error('Global error handler:', err);
-  
-  // Handle CORS errors
-  if (err.message === 'Not allowed by CORS') {
-    return res.status(403).json({
-      message: 'CORS policy violation',
-      error: 'Origin not allowed'
-    });
-  }
-  
-  // Handle validation errors
-  if (err.name === 'ValidationError') {
-    return res.status(400).json({
-      message: 'Validation error',
-      errors: Object.keys(err.errors).reduce((acc, key) => {
-        acc[key] = err.errors[key].message;
-        return acc;
-      }, {})
-    });
-  }
-  
-  // Handle JWT errors
-  if (err.name === 'JsonWebTokenError') {
-    return res.status(401).json({
-      message: 'Invalid token',
-      error: 'Authentication failed'
-    });
-  }
-  
-  if (err.name === 'TokenExpiredError') {
-    return res.status(401).json({
-      message: 'Token expired',
-      error: 'Please login again'
-    });
-  }
-  
-  // Default error response
-  res.status(err.status || 500).json({
-    message: err.message || 'Internal server error',
-    error: process.env.NODE_ENV === 'development' ? err.stack : 'Something went wrong'
-  });
-});
+// Enhanced error handling middleware
+const errorHandler = require('./middleware/errorHandler');
+app.use(errorHandler);
 
 // Handle 404 errors
-app.use('*', (req, res) => {
+app.use((req, res) => {
   res.status(404).json({
     message: 'Route not found',
     error: `Cannot ${req.method} ${req.originalUrl}`

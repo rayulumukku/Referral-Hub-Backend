@@ -4,136 +4,207 @@ const referralChainSchema = new mongoose.Schema({
   post: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Post',
-    required: true
+    required: true,
   },
   chainId: {
     type: String,
     required: true,
-    unique: true
+    unique: true,
   },
-  originalCreator: {
+  originalSharer: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true
+    required: true,
   },
-  chainHead: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
-  },
-  chainMembers: [{
-    user: {
+  chain: [{
+    userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true
+      required: true,
     },
     position: {
       type: Number,
-      required: true
+      required: true,
     },
-    joinedAt: {
+    sharedAt: {
       type: Date,
-      default: Date.now
+      required: true,
     },
     platform: {
       type: String,
-      enum: ['web', 'whatsapp', 'linkedin', 'twitter', 'telegram', 'instagram', 'facebook', 'email', 'sms', 'copy']
+      enum: ['web', 'whatsapp', 'linkedin', 'twitter', 'email', 'telegram', 'instagram', 'facebook', 'mobile_messages', 'sms', 'other'],
+      required: true,
     },
     device: {
       type: String,
-      enum: ['mobile', 'desktop', 'tablet']
+      enum: ['desktop', 'mobile', 'tablet', 'smartphone', 'laptop', 'other'],
+      required: true,
     },
     browser: String,
+    userAgent: String,
     location: {
-      from: {
-        city: String,
-        state: String,
-        country: String,
-        coordinates: {
-          lat: Number,
-          lng: Number
-        }
-      },
-      to: {
-        city: String,
-        state: String,
-        country: String,
-        coordinates: {
-          lat: Number,
-          lng: Number
-        }
+      city: String,
+      state: String,
+      country: String,
+      coordinates: {
+        latitude: Number,
+        longitude: Number,
+        accuracy: Number
       }
     },
-    referralLink: String,
-    clickCount: {
-      type: Number,
-      default: 0
+    ipAddress: String,
+    sessionId: String,
+    referralId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Referral',
     },
-    shareCount: {
+    clicks: {
       type: Number,
-      default: 0
+      default: 0,
     },
-    engagementScore: {
+    views: {
       type: Number,
-      default: 0
+      default: 0,
+    },
+    shares: {
+      type: Number,
+      default: 0,
+    },
+    engagement: {
+      timeSpent: Number,
+      scrollDepth: Number,
+      interactions: [{
+        type: {
+          type: String,
+          enum: ['click', 'share', 'view', 'scroll', 'hover', 'register', 'login']
+        },
+        timestamp: Date,
+        duration: Number,
+        metadata: mongoose.Schema.Types.Mixed
+      }]
     }
   }],
   totalClicks: {
     type: Number,
-    default: 0
+    default: 0,
+  },
+  totalViews: {
+    type: Number,
+    default: 0,
   },
   totalShares: {
     type: Number,
-    default: 0
+    default: 0,
   },
-  conversionOccurred: {
-    type: Boolean,
-    default: false
-  },
-  conversionUser: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
-  },
-  conversionDate: Date,
-  commissionDistributed: {
-    type: Boolean,
-    default: false
-  },
-  commissionDistribution: [{
-    user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User'
+  conversion: {
+    converted: {
+      type: Boolean,
+      default: false,
     },
-    amount: Number,
-    percentage: Number,
-    position: Number,
-    distributionType: {
-      type: String,
-      enum: ['last_person', 'chain_head', 'middle_members']
-    }
-  }],
-  analytics: {
-    platformDistribution: mongoose.Schema.Types.Mixed,
-    deviceDistribution: mongoose.Schema.Types.Mixed,
-    browserDistribution: mongoose.Schema.Types.Mixed,
-    locationDistribution: mongoose.Schema.Types.Mixed,
-    timeDistribution: mongoose.Schema.Types.Mixed,
-    engagementMetrics: mongoose.Schema.Types.Mixed
+    convertedAt: Date,
+    convertedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    conversionValue: Number,
+    commissionDistributed: {
+      type: Boolean,
+      default: false,
+    },
+    commissionDetails: [{
+      userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+      position: Number,
+      commissionAmount: Number,
+      commissionPercentage: Number,
+      distributedAt: Date,
+    }]
   },
-  status: {
-    type: String,
-    enum: ['active', 'converted', 'expired'],
-    default: 'active'
+  analytics: {
+    platformBreakdown: {
+      type: Map,
+      of: Number,
+      default: {},
+    },
+    deviceBreakdown: {
+      type: Map,
+      of: Number,
+      default: {},
+    },
+    locationBreakdown: {
+      type: Map,
+      of: Number,
+      default: {},
+    },
+    timeBreakdown: {
+      hourly: {
+        type: Map,
+        of: Number,
+        default: {},
+      },
+      daily: {
+        type: Map,
+        of: Number,
+        default: {},
+      },
+    },
+    journeyMap: [{
+      from: {
+        userId: mongoose.Schema.Types.ObjectId,
+        location: {
+          city: String,
+          state: String,
+          country: String,
+          coordinates: {
+            latitude: Number,
+            longitude: Number
+          }
+        },
+        timestamp: Date,
+        platform: String,
+        device: String
+      },
+      to: {
+        userId: mongoose.Schema.Types.ObjectId,
+        location: {
+          city: String,
+          state: String,
+          country: String,
+          coordinates: {
+            latitude: Number,
+            longitude: Number
+          }
+        },
+        timestamp: Date,
+        platform: String,
+        device: String
+      },
+      distance: Number,
+      travelTime: Number,
+      clicks: Number,
+      views: Number,
+      shares: Number
+    }]
+  },
+  isActive: {
+    type: Boolean,
+    default: true,
+  },
+  lastActivity: {
+    type: Date,
+    default: Date.now,
   }
 }, {
-  timestamps: true
+  timestamps: true,
 });
 
-// Indexes for efficient queries
+// Indexes for better performance
 referralChainSchema.index({ post: 1, chainId: 1 });
-referralChainSchema.index({ originalCreator: 1 });
-referralChainSchema.index({ chainHead: 1 });
-referralChainSchema.index({ 'chainMembers.user': 1 });
-referralChainSchema.index({ conversionOccurred: 1 });
+referralChainSchema.index({ originalSharer: 1 });
+referralChainSchema.index({ 'chain.userId': 1 });
+referralChainSchema.index({ 'conversion.converted': 1 });
+referralChainSchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model('ReferralChain', referralChainSchema);

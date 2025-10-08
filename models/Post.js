@@ -103,19 +103,77 @@ const postSchema = new mongoose.Schema({
     viewHistory: [{
       userId: mongoose.Schema.Types.ObjectId,
       timestamp: Date,
-      platform: String,
-      device: String,
-      browser: String,
+      platform: String, // web, mobile, desktop
+      device: String, // desktop, mobile, tablet, smartphone
+      browser: String, // Chrome, Firefox, Safari, etc.
+      browserVersion: String,
       ipAddress: String,
       referrer: String,
       sessionId: String,
+      userAgent: String, // Full user agent string
+      screenSize: {
+        width: Number,
+        height: Number
+      },
+      viewport: {
+        width: Number,
+        height: Number
+      },
+      os: String, // Windows, macOS, iOS, Android, Linux
+      osVersion: String,
+      deviceModel: String, // iPhone 14 Pro, Samsung Galaxy S23, etc.
+      location: {
+        city: String,
+        state: String,
+        country: String,
+        coordinates: {
+          latitude: Number,
+          longitude: Number,
+          accuracy: Number
+        },
+        timezone: String,
+        locale: String
+      },
+      networkInfo: {
+        connectionType: String, // 4g, 5g, wifi, ethernet
+        effectiveType: String, // slow-2g, 2g, 3g, 4g
+        downlink: Number, // Mbps
+        rtt: Number, // Round trip time
+        saveData: Boolean
+      },
+      language: String,
+      isIncognito: Boolean,
+      colorScheme: String, // light, dark
+      touchSupport: Boolean
     }],
     shareHistory: [{
       userId: mongoose.Schema.Types.ObjectId,
-      platform: String,
+      platform: String, // whatsapp, linkedin, twitter, facebook, telegram, email, etc.
       timestamp: Date,
       ipAddress: String,
       userAgent: String,
+      device: String,
+      browser: String,
+      screenSize: {
+        width: Number,
+        height: Number
+      },
+      os: String,
+      location: {
+        city: String,
+        state: String,
+        country: String,
+        coordinates: {
+          latitude: Number,
+          longitude: Number
+        }
+      },
+      shareMethod: String, // native_share, copy_link, direct_platform
+      sharedTo: String, // Platform or contact identifier
+      fromLocation: { // Where they shared FROM
+        page: String,
+        section: String
+      }
     }],
     conversionHistory: [{
       userId: mongoose.Schema.Types.ObjectId,
