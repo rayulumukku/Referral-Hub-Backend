@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login Interface Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; }
+        button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px; }
+        button:hover { background: #0056b3; }
+        .error { color: red; margin-top: 10px; }
+        .success { color: green; margin-top: 10px; }
+        .demo-buttons { margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <h1>REF-HUB Login Interface Test</h1>
+    
+    <form id="loginForm">
+        <div class="form-group">
+            <label for="email">Email:</label>
+            <input type="email" id="email" name="email" autocomplete="email" required>
+        </div>
+        <div class="form-group">
+            <label for="password">Password:</label>
+            <input type="password" id="password" name="password" autocomplete="current-password" required>
+        </div>
+        <button type="submit">Login</button>
+    </form>
+
+    <div class="demo-buttons">
+        <h3>Demo Logins:</h3>
+        <button onclick="demoLogin('premium@demo.com', 'demo123')">Login as Premium User</button>
+        <button onclick="demoLogin('superpremium@demo.com', 'demo123')">Login as Super Premium</button>
+    </div>
+
+    <div id="result"></div>
+
+    <script>
+        const API_BASE_URL = 'https://referral-hub-backend-production.up.railway.app/api';
+        
+        // Check if we're running from file:// or http://
+        console.log('Current origin:', window.location.origin);
+        console.log('Current protocol:', window.location.protocol);
+        
+        // Test backend connectivity first
+        async function testBackendConnectivity() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/auth/health`);
+                console.log('Backend health check:', response.status);
+                return response.ok;
+            } catch (error) {
+                console.error('Backend connectivity test failed:', error);
+                return false;
+            }
+        }
+        
+        // Run connectivity test on page load
+        window.addEventListener('load', async () => {
+            const isBackendReachable = await testBackendConnectivity();
+            if (!isBackendReachable) {
+                document.getElementById('result').innerHTML = 
+                    `<div class="error">❌ Backend not reachable. This might be a CORS issue when running from file://</div>`;
+            }
+        });
+        
+        async function login(email, password) {
+            try {
+                console.log('Attempting login to:', `${API_BASE_URL}/auth/login`);
+                console.log('Request data:', { email, password });
+                
+                const response = await fetch(`${API_BASE_URL}/auth/login`, {
+                    method: 'POST',
+                    mode: 'cors',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Origin': window.location.origin,
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        email: email,
+                        password: password,
+                        platform: 'web',
+                        device: 'desktop',
+                        browser: 'Chrome',
+                        userAgent: navigator.userAgent,
+                        screenSize: {
+                            width: window.screen.width,
+                            height: window.screen.height
+                        }
+                    })
+                });
+
+                console.log('Response status:', response.status);
+                console.log('Response headers:', [...response.headers.entries()]);
+
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('result').innerHTML = 
+                        `<div class="success">✅ Login Successful!<br>
+                        User: ${data.user.email}<br>
+                        Type: ${data.user.type}<br>
+                        Credits: ${data.user.credits}<br>
+                        Token: ${data.token.substring(0, 20)}...</div>`;
+                } else {
+                    const errorText = await response.text();
+                    console.log('Error response:', errorText);
+                    document.getElementById('result').innerHTML = 
+                        `<div class="error">❌ Login Failed (${response.status}): ${errorText}</div>`;
+                }
+            } catch (error) {
+                console.error('Network error:', error);
+                document.getElementById('result').innerHTML = 
+                    `<div class="error">❌ Network Error: ${error.message}<br>
+                    <small>Check browser console for details</small></div>`;
+            }
+        }
+
+        async function demoLogin(email, password) {
+            document.getElementById('email').value = email;
+            document.getElementById('password').value = password;
+            await login(email, password);
+        }
+
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            await login(email, password);
+        });
+    </script>
+</body>
+</html>
