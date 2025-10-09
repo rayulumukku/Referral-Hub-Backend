@@ -9,8 +9,9 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: ["http://localhost:3000", "https://referral-hub-frontend.vercel.app", "https://referral-hub-frontend.vercel.app/"],
-    methods: ["GET", "POST"]
+    origin: true, // Allow all origins for now
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true
   }
 });
 
