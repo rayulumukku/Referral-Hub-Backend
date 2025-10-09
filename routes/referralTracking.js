@@ -1,323 +1,223 @@
 const express = require('express');
-const Referral = require('../models/Referral');
-const User = require('../models/User');
-const Post = require('../models/Post');
-const Activity = require('../models/Activity');
-const Notification = require('../models/Notification');
-
 const router = express.Router();
+const auth = require('../middleware/auth');
+const referralTrackingService = require('../services/referralTrackingService');
 
-// Get io instance from server.js
-let io;
-const setIoInstance = (ioInstance) => {
-  io = ioInstance;
-};
-
-// Attach setIoInstance to router
-router.setIoInstance = setIoInstance;
-
-// Enhanced referral tracking endpoint
-router.post('/track-referral', async (req, res) => {
+/**
+ * @route   POST /api/referral-tracking/track
+ * @desc    Track a referral click and create chain node
+ * @access  Public
+ */
+router.post('/track', async (req, res) => {
   try {
     const {
       postId,
-      referrerEmail, // dasaradharam109@gmail.com
-      refereeEmail,  // ram@gmail.com
+      userId,
+      referrerId,
+      parentChainId,
       platform,
-      device,
-      browser,
+      deviceInfo,
       location,
-      coordinates,
-      userAgent,
-      screenSize,
-      sessionId
+      clickData,
+      engagement,
+      metadata
     } = req.body;
 
-    console.log('=== REFERRAL TRACKING STARTED ===');
-    console.log('Post ID:', postId);
-    console.log('Referrer Email:', referrerEmail);
-    console.log('Referee Email:', refereeEmail);
-    console.log('Platform:', platform);
-
-    // Find or create referrer user
-    let referrer = await User.findOne({ email: referrerEmail });
-    if (!referrer) {
-      console.log('Referrer not found, creating new user:', referrerEmail);
-      referrer = new User({
-        email: referrerEmail,
-        username: referrerEmail.split('@')[0],
-        type: 'individual',
-        credits: 5,
-        status: 'active'
+    if (!postId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Post ID is required'
       });
-      await referrer.save();
     }
 
-    // Find or create referee user
-    let referee = await User.findOne({ email: refereeEmail });
-    if (!referee) {
-      console.log('Referee not found, creating new user:', refereeEmail);
-      referee = new User({
-        email: refereeEmail,
-        username: refereeEmail.split('@')[0],
-        type: 'individual',
-        credits: 5,
-        status: 'active',
-        referrer: referrer._id // Set referrer relationship
-      });
-      await referee.save();
-    }
-
-    // Get post
-    const post = await Post.findById(postId).populate('creator');
-    if (!post) {
-      return res.status(404).json({ message: 'Post not found' });
-    }
-
-    // Check if referral already exists
-    let existingReferral = await Referral.findOne({
-      post: postId,
-      referrer: referrer._id,
-      referee: referee._id
+    const chainNode = await referralTrackingService.trackReferralClick({
+      postId,
+      userId,
+      referrerId,
+      parentChainId,
+      platform,
+      deviceInfo,
+      location,
+      clickData,
+      engagement,
+      metadata
     });
 
-    if (existingReferral) {
-      // Update existing referral
-      existingReferral.engagement.totalClicks += 1;
-      existingReferral.engagement.interactions.push({
-        type: 'click',
-        timestamp: new Date(),
-        duration: 0
-      });
-      await existingReferral.save();
-      
-      console.log('Updated existing referral:', existingReferral._id);
-    } else {
-      // Create new referral
-      const referral = new Referral({
-        post: postId,
-        referrer: referrer._id,
-        referee: referee._id,
-        level: 1,
-        platform: platform || 'web',
-        device: device || 'desktop',
-        browser: browser || 'Unknown',
-        userAgent: userAgent || 'Unknown',
-        screenSize: screenSize || {},
-        location: {
-          latitude: coordinates?.latitude,
-          longitude: coordinates?.longitude,
-          city: location?.city,
-          state: location?.state,
-          country: location?.country,
-          timezone: location?.timezone
-        },
-        coordinates,
-        sessionId: sessionId || `session_${Date.now()}`,
-        engagement: {
-          totalClicks: 1,
-          uniqueClicks: 1,
-          shares: 0,
-          interactions: [{
-            type: 'click',
-            timestamp: new Date(),
-            duration: 0
-          }]
-        },
-        chain: {
-          position: 1,
-          totalInChain: 1,
-          chainId: `chain_${postId}_${referrer._id}`,
-          isActive: true
-        }
-      });
-
-      await referral.save();
-      console.log('Created new referral:', referral._id);
-
-      // Create activity record
-      const activity = new Activity({
-        type: 'referral_created',
-        user: referrer._id,
-        targetUser: referee._id,
-        post: postId,
-        referral: referral._id,
-        details: {
-          message: `${referrer.username} referred ${referee.username} to post: ${post.title}`,
-          platform,
-          location
-        },
-        metadata: {
-          platform,
-          device,
-          browser,
-          location,
-          ipAddress: req.ip
-        }
-      });
-      await activity.save();
-
-      // Create notification for post creator
-      const notification = new Notification({
-        recipient: post.creator._id,
-        type: 'referral_created',
-        title: 'New Referral Created',
-        message: `${referrer.username} referred ${referee.username} to your post: ${post.title}`,
-        data: {
-          postId,
-          referralId: referral._id,
-          referrerId: referrer._id,
-          refereeId: referee._id
-        }
-      });
-      await notification.save();
-
-      // Emit real-time updates
-      if (io) {
-        // Emit to post creator
-        io.to(`user_${post.creator._id}`).emit('referral_update', {
-          type: 'new_referral',
-          postId,
-          referralId: referral._id,
-          referrer: referrer.username,
-          referee: referee.username,
-          platform,
-          location,
-          timestamp: new Date()
-        });
-
-        // Emit to referrer
-        io.to(`user_${referrer._id}`).emit('referral_update', {
-          type: 'referral_created',
-          postId,
-          referralId: referral._id,
-          referee: referee.username,
-          platform,
-          location,
-          timestamp: new Date()
-        });
-
-        // Emit global analytics update
-        io.emit('global_analytics_update', {
-          type: 'new_referral',
-          postId,
-          timestamp: new Date()
-        });
-      }
-    }
-
-    // Update post analytics
-    await Post.findByIdAndUpdate(postId, {
-      $inc: { 
-        'analytics.views': 1,
-        'analytics.shares': 1
-      },
-      $addToSet: { 'analytics.uniqueViewers': referee._id }
+    res.status(201).json({
+      success: true,
+      chainNode
     });
+  } catch (error) {
+    console.error('Error tracking referral:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
 
-    console.log('=== REFERRAL TRACKING COMPLETED ===');
+/**
+ * @route   GET /api/referral-tracking/tree/:postId
+ * @desc    Get referral tree structure for a post
+ * @access  Public
+ */
+router.get('/tree/:postId', async (req, res) => {
+  try {
+    const { postId } = req.params;
+
+    const tree = await referralTrackingService.getReferralTree(postId);
 
     res.json({
       success: true,
-      message: 'Referral tracked successfully',
-      referral: {
-        id: existingReferral?._id || 'new',
-        referrer: referrer.username,
-        referee: referee.username,
-        platform,
-        timestamp: new Date()
-      }
+      tree
     });
-
   } catch (error) {
-    console.error('Error tracking referral:', error);
-    res.status(500).json({ 
+    console.error('Error getting referral tree:', error);
+    res.status(500).json({
       success: false,
-      message: 'Error tracking referral',
-      error: error.message 
+      message: error.message
     });
   }
 });
 
-// Get user's referral network
-router.get('/user-network/:userId', async (req, res) => {
-  try {
-    const { userId } = req.params;
-    
-    // Get user's direct referrals
-    const directReferrals = await Referral.find({ referrer: userId })
-      .populate('referee', 'username email type')
-      .populate('post', 'title description')
-      .sort({ createdAt: -1 });
-
-    // Get user's referral analytics
-    const analytics = {
-      totalReferrals: directReferrals.length,
-      totalClicks: directReferrals.reduce((sum, r) => sum + (r.engagement?.totalClicks || 0), 0),
-      totalShares: directReferrals.reduce((sum, r) => sum + (r.engagement?.shares || 0), 0),
-      conversions: directReferrals.filter(r => r.conversion?.converted).length,
-      platforms: {},
-      locations: {},
-      devices: {}
-    };
-
-    // Process analytics data
-    directReferrals.forEach(ref => {
-      if (ref.platform) {
-        analytics.platforms[ref.platform] = (analytics.platforms[ref.platform] || 0) + 1;
-      }
-      if (ref.location?.city) {
-        const key = `${ref.location.city}, ${ref.location.state || ref.location.country}`;
-        analytics.locations[key] = (analytics.locations[key] || 0) + 1;
-      }
-      if (ref.device) {
-        analytics.devices[ref.device] = (analytics.devices[ref.device] || 0) + 1;
-      }
-    });
-
-    res.json({
-      referrals: directReferrals,
-      analytics
-    });
-
-  } catch (error) {
-    console.error('Error fetching user network:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// Get referral chain for a post
-router.get('/post-chain/:postId', async (req, res) => {
+/**
+ * @route   GET /api/referral-tracking/hub-and-spoke/:postId
+ * @desc    Get hub-and-spoke visualization data
+ * @access  Public
+ */
+router.get('/hub-and-spoke/:postId', async (req, res) => {
   try {
     const { postId } = req.params;
-    
-    // Get all referrals for this post
-    const referrals = await Referral.find({ post: postId })
-      .populate('referrer', 'username email')
-      .populate('referee', 'username email')
-      .sort({ createdAt: 1 });
 
-    // Build chain structure
-    const chain = referrals.map((ref, index) => ({
-      level: index + 1,
-      referrer: ref.referrer,
-      referee: ref.referee,
-      platform: ref.platform,
-      location: ref.location,
-      timestamp: ref.createdAt,
-      engagement: ref.engagement
-    }));
+    const data = await referralTrackingService.getHubAndSpokeData(postId);
 
     res.json({
-      postId,
-      chain,
-      totalReferrals: referrals.length,
-      totalClicks: referrals.reduce((sum, r) => sum + (r.engagement?.totalClicks || 0), 0)
+      success: true,
+      ...data
     });
-
   } catch (error) {
-    console.error('Error fetching post chain:', error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Error getting hub-and-spoke data:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
+/**
+ * @route   GET /api/referral-tracking/analytics/:postId
+ * @desc    Get analytics for a post
+ * @access  Public
+ */
+router.get('/analytics/:postId', async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const { timeRange, platform, deviceType, browser } = req.query;
+
+    const filters = {};
+    if (platform) filters.platform = platform;
+    if (deviceType) filters.deviceType = deviceType;
+    if (browser) filters.browser = browser;
+
+    const analytics = await referralTrackingService.getAnalytics(
+      postId,
+      timeRange,
+      filters
+    );
+
+    res.json({
+      success: true,
+      analytics
+    });
+  } catch (error) {
+    console.error('Error getting analytics:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
+/**
+ * @route   GET /api/referral-tracking/top-referrers/:postId
+ * @desc    Get top referrers for a post
+ * @access  Public
+ */
+router.get('/top-referrers/:postId', async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const { limit = 10 } = req.query;
+
+    const topReferrers = await referralTrackingService.getTopReferrers(
+      postId,
+      parseInt(limit)
+    );
+
+    res.json({
+      success: true,
+      topReferrers
+    });
+  } catch (error) {
+    console.error('Error getting top referrers:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
+/**
+ * @route   GET /api/referral-tracking/commission-preview/:postId
+ * @desc    Get commission preview for all nodes
+ * @access  Private
+ */
+router.get('/commission-preview/:postId', auth, async (req, res) => {
+  try {
+    const { postId } = req.params;
+
+    const commissionPreview = await referralTrackingService.calculateCommissionPreview(postId);
+
+    res.json({
+      success: true,
+      commissionPreview
+    });
+  } catch (error) {
+    console.error('Error getting commission preview:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
+/**
+ * @route   GET /api/referral-tracking/export/:postId
+ * @desc    Export referral data (JSON/CSV)
+ * @access  Private
+ */
+router.get('/export/:postId', auth, async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const { format = 'json' } = req.query;
+
+    const exportData = await referralTrackingService.exportReferralData(postId, format);
+
+    if (format === 'csv') {
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=referral-data-${postId}.csv`);
+      res.send(exportData.data);
+    } else {
+      res.json({
+        success: true,
+        ...exportData
+      });
+    }
+  } catch (error) {
+    console.error('Error exporting data:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 });
 

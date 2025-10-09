@@ -221,6 +221,14 @@ io.on('connection', (socket) => {
 const ActivityService = require('./services/activityService');
 ActivityService.setIoInstance(io);
 
+// ✅ Initialize Social Socket Handler
+const socialSocketHandler = require('./services/socialSocketHandler');
+socialSocketHandler.initialize(io);
+
+// ✅ Initialize Referral Tracking Service
+const referralTrackingService = require('./services/referralTrackingService');
+referralTrackingService.initialize(io);
+
 // ✅ Pass io instance to ComprehensiveReferralChainService for real-time updates
 const ComprehensiveReferralChainService = require('./services/comprehensiveReferralChainService');
 ComprehensiveReferralChainService.setIoInstance(io);
@@ -284,6 +292,18 @@ app.use('/api/commissions', require('./routes/commissions'));
 // ACTIVITIES ENDPOINT
 app.use('/api/activities', require('./routes/activities'));
 app.use('/api/post-analytics-detail', require('./routes/postAnalyticsDetail'));
+
+// COMPREHENSIVE TRACKING ENDPOINT (All 40+ Data Points)
+app.use('/api/tracking/comprehensive', require('./routes/comprehensiveTracking'));
+
+// SOCIAL FEATURES ENDPOINTS
+app.use('/api/likes', require('./routes/likes'));
+app.use('/api/comments', require('./routes/comments'));
+app.use('/api/follows', require('./routes/follows'));
+app.use('/api/feed', require('./routes/feed'));
+
+// REFERRAL TRACKING ENDPOINTS (Enhanced Hub-and-Spoke System)
+app.use('/api/referral-tracking', require('./routes/referralTracking'));
 
 // TEMPORARY FIX: Add missing routes directly to server.js
 // Dashboard user stats endpoint

@@ -186,6 +186,45 @@ const userSchema = new mongoose.Schema({
       lastActivity: Date,
     },
   },
+  socialStats: {
+    followerCount: {
+      type: Number,
+      default: 0,
+    },
+    followingCount: {
+      type: Number,
+      default: 0,
+    },
+    postCount: {
+      type: Number,
+      default: 0,
+    },
+    likeCount: {
+      type: Number,
+      default: 0,
+    },
+    commentCount: {
+      type: Number,
+      default: 0,
+    },
+  },
+  firstName: {
+    type: String,
+    default: '',
+  },
+  lastName: {
+    type: String,
+    default: '',
+  },
+  avatar: {
+    type: String,
+    default: '',
+  },
+  bio: {
+    type: String,
+    maxlength: 500,
+    default: '',
+  },
 }, {
   timestamps: true,
 });

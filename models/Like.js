@@ -4,72 +4,110 @@ const likeSchema = new mongoose.Schema({
   user: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true,
+    required: true
   },
-  post: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Post',
-    required: true,
-  },
-  type: {
+  targetType: {
     type: String,
-    enum: ['like', 'love', 'laugh', 'angry', 'sad', 'wow'],
-    default: 'like',
+    enum: ['post', 'comment'],
+    required: true
+  },
+  targetId: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true,
+    refPath: 'targetType'
+  },
+  reactionType: {
+    type: String,
+    enum: ['like', 'love', 'wow', 'sad', 'angry', 'haha'],
+    default: 'like'
   },
   metadata: {
-    platform: String,
-    device: String,
-    ipAddress: String,
-    userAgent: String,
-  },
+    deviceType: String,
+    browser: String,
+    location: {
+      city: String,
+      country: String
+    },
+    ipAddress: String
+  }
 }, {
-  timestamps: true,
+  timestamps: true
 });
 
-// Compound index to ensure one like per user per post
-likeSchema.index({ user: 1, post: 1 }, { unique: true });
-likeSchema.index({ post: 1, createdAt: -1 });
+// Compound index to prevent duplicate likes
+likeSchema.index({ user: 1, targetType: 1, targetId: 1 }, { unique: true });
 
-// Static method to toggle like
-likeSchema.statics.toggleLike = async function(userId, postId, type = 'like') {
-  const existingLike = await this.findOne({ user: userId, post: postId });
+// Index for efficient querying
+likeSchema.index({ targetType: 1, targetId: 1 });
+likeSchema.index({ user: 1 });
+likeSchema.index({ createdAt: -1 });
 
+// Virtual for getting target (post or comment)
+likeSchema.virtual('target', {
+  refPath: 'targetType',
+  localField: 'targetId',
+  foreignField: '_id',
+  justOne: true
+});
+
+// Method to toggle like
+likeSchema.statics.toggleLike = async function(userId, targetType, targetId, reactionType = 'like', metadata = {}) {
+  const existingLike = await this.findOne({ user: userId, targetType, targetId });
+  
   if (existingLike) {
-    // Remove like
-    await this.deleteOne({ user: userId, post: postId });
-    return { action: 'removed', like: null };
+    // If same reaction, remove it (unlike)
+    if (existingLike.reactionType === reactionType) {
+      await existingLike.deleteOne();
+      return { action: 'unliked', like: null };
+    } else {
+      // Change reaction type
+      existingLike.reactionType = reactionType;
+      existingLike.metadata = metadata;
+      await existingLike.save();
+      return { action: 'reacted', like: existingLike };
+    }
   } else {
-    // Add like
-    const like = new this({
+    // Create new like
+    const newLike = await this.create({
       user: userId,
-      post: postId,
-      type,
-      metadata: {
-        platform: 'web',
-        device: 'desktop',
-      },
+      targetType,
+      targetId,
+      reactionType,
+      metadata
     });
-    await like.save();
-    return { action: 'added', like };
+    return { action: 'liked', like: newLike };
   }
 };
 
-// Static method to check if user liked post
-likeSchema.statics.hasLiked = async function(userId, postId) {
-  const like = await this.findOne({ user: userId, post: postId });
-  return !!like;
+// Method to get like counts for a target
+likeSchema.statics.getLikeCounts = async function(targetType, targetId) {
+  const counts = await this.aggregate([
+    { $match: { targetType, targetId: new mongoose.Types.ObjectId(targetId) } },
+    { $group: { _id: '$reactionType', count: { $sum: 1 } } }
+  ]);
+  
+  const result = {
+    total: 0,
+    like: 0,
+    love: 0,
+    wow: 0,
+    sad: 0,
+    angry: 0,
+    haha: 0
+  };
+  
+  counts.forEach(item => {
+    result[item._id] = item.count;
+    result.total += item.count;
+  });
+  
+  return result;
 };
 
-// Static method to get like count for post
-likeSchema.statics.getLikeCount = async function(postId) {
-  return await this.countDocuments({ post: postId });
-};
-
-// Static method to get likes for post with user details
-likeSchema.statics.getLikesForPost = async function(postId) {
-  return await this.find({ post: postId })
-    .populate('user', 'username')
-    .sort({ createdAt: -1 });
+// Method to check if user liked a target
+likeSchema.statics.hasUserLiked = async function(userId, targetType, targetId) {
+  const like = await this.findOne({ user: userId, targetType, targetId });
+  return like ? { hasLiked: true, reactionType: like.reactionType } : { hasLiked: false, reactionType: null };
 };
 
 module.exports = mongoose.model('Like', likeSchema);
